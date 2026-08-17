@@ -1,0 +1,1995 @@
+{
+  "_comment": "The merchant master. Every merchant the pipeline recognises has one entry keyed by its canonical name; every spelling seen in the source is listed under 'aliases'. A cleaned name matching neither a key nor an alias is unrecognised and goes to the merchant_review sheet -- it is never guessed. 'mcc' is an optional human assertion that outranks every automated MCC signal.",
+  "merchants": {
+    "ABC CONSULTING": {
+      "aliases": [
+        "ABC C",
+        "ABCCONSULTING"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ABC VERDUN": {
+      "aliases": [
+        "ABC V"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ABOUCHACRA": {
+      "mcc": "5712",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ADIDAS": {
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ADNOC DISTRIBUTION": {
+      "aliases": [
+        "ADNOC D",
+        "ADNOC DISTR"
+      ],
+      "mcc": "5541",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ADOBE CREATIVE CLOUD": {
+      "aliases": [
+        "ADB CREATIVE CLOUD",
+        "ADOBECREATIVECLOUD"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AIR FRANCE": {
+      "aliases": [
+        "AIRFRANCE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AIRBNB": {
+      "aliases": [
+        "ARBNB"
+      ],
+      "mcc": "7011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AISHTI": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AL MEERA DOHA": {
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ALDI SUD": {
+      "aliases": [
+        "ALDI S"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ALDREES PETROL": {
+      "aliases": [
+        "ALDREES P",
+        "ALDRS PETROL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ALFA TELECOM": {
+      "aliases": [
+        "ALFATELECOM"
+      ],
+      "mcc": "4814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ALIEXPRESS": {
+      "aliases": [
+        "ALXPRSS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ALLIANZ DIRECT": {
+      "aliases": [
+        "ALLIANZ D",
+        "ALLIANZDIRECT",
+        "ALLNZ DIRECT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ALLO TAXI": {
+      "aliases": [
+        "ALLO T"
+      ],
+      "mcc": "4121",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AMAZON MARKETPLACE": {
+      "aliases": [
+        "AMAZON M",
+        "AMAZONMARKETPLACE"
+      ],
+      "note": "kept separate from AWS CLOUD SERVICES",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AMC THEATRES": {
+      "aliases": [
+        "AMC T",
+        "AMCTHEATRES"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AMERICAN UNIVERSITY": {
+      "aliases": [
+        "AMERICAN U",
+        "AMERICAN UNIV"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ANGHAMI": {
+      "mcc": "4899",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "APPLE MUSIC": {
+      "aliases": [
+        "APPLE M",
+        "APPLEMUSIC"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "APPLE STORE": {
+      "aliases": [
+        "APPLE",
+        "APPLE STR"
+      ],
+      "mcc": "5732",
+      "note": "bare APPLE folded here on MCC evidence: its rows are 5732/5812, never the 4899 that marks APPLE MUSIC",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ARAMEX": {
+      "aliases": [
+        "ARAMEX L",
+        "ARAMEX LEBANON"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ATLANTIS THE PALM": {
+      "aliases": [
+        "ATLANTISTHEPALM",
+        "ATLNTS THE PALM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AUB MEDICAL CENTER": {
+      "mcc": "8062",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AUDIBLE": {
+      "aliases": [
+        "ADBL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AUTOZONE": {
+      "aliases": [
+        "ATZN"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AVIS CAR RENTAL": {
+      "aliases": [
+        "AVIS CR"
+      ],
+      "mcc": "7538",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AWS CLOUD SERVICES": {
+      "aliases": [
+        "AWS CLOUD SERVI",
+        "AWS CLOUD SVCS",
+        "AWS CS",
+        "AWSCLOUDSERVICES"
+      ],
+      "note": "kept separate from AMAZON MARKETPLACE: same parent, different business (7372 vs 5999). MCC describes what was sold, not who owns the brand",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "AXA INSURANCE": {
+      "aliases": [
+        "AXA INS"
+      ],
+      "mcc": "6300",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BANKERS ASSURANCE": {
+      "aliases": [
+        "BANKERS A",
+        "BANKERSASSURANCE",
+        "BNKRS ASSURANCE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BANKMED ATM": {
+      "aliases": [
+        "BNKMD ATM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BARBAR": {
+      "aliases": [
+        "BRBR"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BARCLAYS ATM": {
+      "mcc": "6011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BARNES AND NOBLE": {
+      "mcc": "5942",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BASSOUL HENEINE": {
+      "aliases": [
+        "BSSL HENEINE"
+      ],
+      "mcc": "5533",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BEAUTY LOUNGE HAMRA": {
+      "aliases": [
+        "BEAUTY LH",
+        "BEAUTY LOUNGE H"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BEIRUT ROASTERY": {
+      "aliases": [
+        "BEIRUT R",
+        "BEIRUTROASTERY",
+        "BRT ROASTERY"
+      ],
+      "mcc": "5812",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BEIRUT SOUKS CINEMA": {
+      "aliases": [
+        "BEIRUT SC"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BEIRUT WATER EST": {
+      "aliases": [
+        "BRT WATER EST"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BEST BUY": {
+      "aliases": [
+        "BESTBUY"
+      ],
+      "mcc": "5732",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BINANCE": {
+      "aliases": [
+        "BNNC"
+      ],
+      "mcc": "6051",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BLOM BANK ATM": {
+      "aliases": [
+        "BLOM BA"
+      ],
+      "mcc": "6011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BNP PARIBAS ATM": {
+      "mcc": "6011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BOB FINANCE": {
+      "aliases": [
+        "BOB F"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BOLT": {
+      "aliases": [
+        "BOLT L",
+        "BOLT LEBANON",
+        "BOLTLEBANON"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BOOKING COM": {
+      "aliases": [
+        "BOOKINGCOM"
+      ],
+      "mcc": "7011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BOOTS PHARMACY": {
+      "aliases": [
+        "BTS PHARMACY"
+      ],
+      "mcc": "5912",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BOU KHALIL MARKET": {
+      "aliases": [
+        "BOU KHALIL MKT"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BOUTIQUE ELIE SAAB": {
+      "aliases": [
+        "BTQ ELIE SAAB"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BP FUEL": {
+      "aliases": [
+        "BP F"
+      ],
+      "mcc": "5541",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BRITISH AIRWAYS": {
+      "aliases": [
+        "BRITISH A",
+        "BRTSH AIRWAYS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BURGER KING": {
+      "aliases": [
+        "BURGER K"
+      ],
+      "mcc": "5814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "BYBLOS BANK ATM": {
+      "aliases": [
+        "BYBLOS BA",
+        "BYBLS BANK ATM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CANVA": {
+      "aliases": [
+        "CNV"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CAREEM": {
+      "aliases": [
+        "CRM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CARREFOUR": {
+      "aliases": [
+        "CARREFOUR CITY MALL",
+        "CARREFOUR CM",
+        "CARREFOUR E",
+        "CARREFOUR EGYPT",
+        "CARREFOUR F",
+        "CARREFOUR FRANCE",
+        "CARREFOUR UAE",
+        "CARREFOURUAE",
+        "CRRFR EGYPT",
+        "CRRFR FRANCE"
+      ],
+      "mcc": "5411",
+      "note": "country and branch qualifiers dropped; MERCHANT_COUNTRY already carries the geography",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CAVE DE BYBLOS": {
+      "aliases": [
+        "CAVE DB"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CHASE BANK ATM": {
+      "aliases": [
+        "CHASE BA",
+        "CHS BANK ATM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CHATEAU KSARA": {
+      "aliases": [
+        "CHATEAUKSARA"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CITY ELECTRONICS": {
+      "aliases": [
+        "CITY E"
+      ],
+      "mcc": "5732",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CLEMENCEAU MEDICAL": {
+      "aliases": [
+        "CLMNC MEDICAL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "COINBASE": {
+      "aliases": [
+        "CNBS"
+      ],
+      "mcc": "6051",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CORAL OIL": {
+      "aliases": [
+        "CORAL O",
+        "CRL OIL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "COSTA COFFEE": {
+      "aliases": [
+        "COSTA C",
+        "CST COFFEE"
+      ],
+      "mcc": "5812",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "COSTCO WHOLESALE": {
+      "aliases": [
+        "CSTC WHOLESALE"
+      ],
+      "mcc": "5300",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "COURSERA": {
+      "aliases": [
+        "CRSR"
+      ],
+      "mcc": "8220",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CREPAWAY": {
+      "note": "CRM is Careem (4121 AE), not Crepaway (5812 LB)",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "CVS PHARMACY": {
+      "aliases": [
+        "CVS P",
+        "CVS PHCY"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DECATHLON": {
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DELIVEROO": {
+      "aliases": [
+        "DLVR"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DEUTSCHE BAHN": {
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DHL EXPRESS": {
+      "aliases": [
+        "DHL E"
+      ],
+      "mcc": "4215",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DIGITALOCEAN": {
+      "aliases": [
+        "DGTLCN"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DISNEY PLUS": {
+      "aliases": [
+        "DISNEY P",
+        "DSNY PLUS"
+      ],
+      "mcc": "4899",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DOMINOS PIZZA": {
+      "aliases": [
+        "DOMINOS P"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DR NADIA HADDAD": {
+      "aliases": [
+        "DR NH"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DROPBOX": {
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DU TELECOM": {
+      "aliases": [
+        "DU T",
+        "DU TEL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DUBAI METRO NOL": {
+      "aliases": [
+        "DB METRO NOL",
+        "DUBAI MN"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DUBAI TAXI CORP": {
+      "aliases": [
+        "DUBAI TC"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "DUOLINGO": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EGYPTAIR": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ELECTRICITE DU LIBAN": {
+      "mcc": "4900",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ELECTRO CHAABAN": {
+      "aliases": [
+        "ELECTRO C"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EMIRATES AIRLINE": {
+      "aliases": [
+        "EMIRATES A"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EMIRATES ISLAMIC ATM": {
+      "aliases": [
+        "EMIRATES IA",
+        "EMRTS ISLAMIC ATM"
+      ],
+      "note": "EMIRATES IA read as Islamic ATM; both are 6011 in AE so MCC cannot separate it from EMIRATES NBD ATM - the letter pattern does",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EMIRATES NBD ATM": {
+      "aliases": [
+        "EMIRATES NA",
+        "EMRTS NBD ATM"
+      ],
+      "mcc": "6011",
+      "note": "EMIRATES NA read as NBD ATM; see EMIRATES ISLAMIC ATM",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ENOC STATION": {
+      "aliases": [
+        "ENOC S"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EPIC GAMES": {
+      "aliases": [
+        "EPIC G",
+        "EPICGAMES"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ETISALAT": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ETORO": {
+      "mcc": "6211",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ETSY SELLER": {
+      "aliases": [
+        "ETSY S",
+        "ETSYSELLER"
+      ],
+      "mcc": "5947",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EUROSTAR": {
+      "aliases": [
+        "ERSTR"
+      ],
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "EXTRA STORES": {
+      "aliases": [
+        "EXTR STORES",
+        "EXTRA S",
+        "EXTRA STR",
+        "EXTRASTORES"
+      ],
+      "mcc": "5732",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FACES": {
+      "aliases": [
+        "FACES L",
+        "FACES LEBANON",
+        "FCS LEBANON"
+      ],
+      "mcc": "5977",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FAHED SUPERMARKET": {
+      "aliases": [
+        "FAHED S",
+        "FAHED SPRMKT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FEDEX": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FITNESS ZONE": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FIVERR": {
+      "aliases": [
+        "FVRR"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FLIPKART": {
+      "aliases": [
+        "FLPKRT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FLYDUBAI": {
+      "aliases": [
+        "FLYDB"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "FNAC": {
+      "mcc": "5732",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GARAGE ELIAS AUTO": {
+      "aliases": [
+        "GARAGE EA",
+        "GRG ELIAS AUTO"
+      ],
+      "mcc": "7538",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GIFT CORNER JBEIL": {
+      "aliases": [
+        "GIFT CJ"
+      ],
+      "mcc": "5947",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GITHUB": {
+      "aliases": [
+        "GTHB"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GOOGLE ADS": {
+      "aliases": [
+        "GGL ADS",
+        "GOOGLEADS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GOOGLE STORAGE": {
+      "aliases": [
+        "GGL STORAGE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GRAMMARLY": {
+      "aliases": [
+        "GRMMRLY"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "GRAND CINEMAS ABC": {
+      "aliases": [
+        "GRAND CA"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "H AND M": {
+      "aliases": [
+        "H AM",
+        "HANDM"
+      ],
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HALFORDS": {
+      "aliases": [
+        "HLFRDS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HALLMARK CARDS": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HERTZ RENTAL": {
+      "aliases": [
+        "HRTZ RENTAL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HILTON GARDEN INN": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HOME DEPOT": {
+      "aliases": [
+        "HOMEDEPOT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HOTEL ALBERGO": {
+      "aliases": [
+        "HTL ALBERGO"
+      ],
+      "mcc": "7011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "HOTEL DIEU DE FRANCE": {
+      "aliases": [
+        "HOTEL DDF",
+        "HTL DIEU DE FRANCE"
+      ],
+      "mcc": "8062",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "IKEA": {
+      "mcc": "5712",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "INTERACTIVE BROKERS": {
+      "aliases": [
+        "INTERACTIVE B",
+        "INTERACTIVEBROKERS",
+        "INTRCTV BROKERS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "IPT SAIDA": {
+      "mcc": "5541",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "JARIR BOOKSTORE": {
+      "aliases": [
+        "JARIR B",
+        "JRR BOOKSTORE"
+      ],
+      "mcc": "5942",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "JETBRAINS": {
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "JIFFY LUBE": {
+      "aliases": [
+        "JIFFY L"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "JUMEIRAH BEACH HOTEL": {
+      "aliases": [
+        "JMRH BEACH HOTEL",
+        "JUMEIRAH BEACH HOTEL B"
+      ],
+      "mcc": "7011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "JUMIA": {
+      "aliases": [
+        "JM NIGERIA",
+        "JUMIA N"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KAAK AL SULTAN": {
+      "aliases": [
+        "KAAK AS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KFC": {
+      "mcc": "5814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KHOURY HOME": {
+      "aliases": [
+        "KHOURY H"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KINDLE STORE": {
+      "aliases": [
+        "KINDLE S",
+        "KINDLE STR",
+        "KINDLESTORE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KLARNA": {
+      "aliases": [
+        "KLRN"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KRAKEN EXCHANGE": {
+      "aliases": [
+        "KRAKEN E",
+        "KRAKENEXCHANGE",
+        "KRKN EXCHANGE"
+      ],
+      "mcc": "6051",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "KUWAIT AIRWAYS": {
+      "aliases": [
+        "KUWAIT A",
+        "KWT AIRWAYS"
+      ],
+      "mcc": "4511",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LAU BYBLOS": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LE GRAY BEIRUT": {
+      "mcc": "7011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LIBRAIRIE ANTOINE": {
+      "aliases": [
+        "LBRR ANTOINE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LIDL": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LINKEDIN PREMIUM": {
+      "aliases": [
+        "LINKEDIN P",
+        "LINKEDINPREMIUM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LUFTHANSA": {
+      "mcc": "4511",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LULU HYPERMARKET": {
+      "aliases": [
+        "LULU H"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "LYFT RIDE": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MADE COM": {
+      "aliases": [
+        "MADE C",
+        "MADECOM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MAILCHIMP": {
+      "aliases": [
+        "MLCHMP"
+      ],
+      "mcc": "7311",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MAJESTIC WINE": {
+      "aliases": [
+        "MAJESTIC W",
+        "MJSTC WINE"
+      ],
+      "mcc": "5921",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MAKEUP STORE BEIRUT": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MALIK BOOKSHOP": {
+      "aliases": [
+        "MALIK BKSHP"
+      ],
+      "mcc": "5942",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MARRIOTT HOTELS": {
+      "aliases": [
+        "MARRIOTT H",
+        "MARRIOTTHOTELS",
+        "MRRTT HOTELS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MAYO CLINIC": {
+      "aliases": [
+        "MAYO C"
+      ],
+      "mcc": "8062",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MCDONALDS": {
+      "aliases": [
+        "MCDNLDS"
+      ],
+      "mcc": "5814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MEDCO STATION": {
+      "aliases": [
+        "MDC STATION",
+        "MEDCO STN"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MEDGULF INSURANCE": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MEDIA MARKT": {
+      "mcc": "5732",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MEPHICO PHARMACY": {
+      "aliases": [
+        "MEPHICO P"
+      ],
+      "mcc": "5912",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MERCADO LIBRE": {
+      "aliases": [
+        "MERCADOLIBRE",
+        "MRCD LIBRE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "META ADS": {
+      "aliases": [
+        "META A",
+        "METAADS"
+      ],
+      "mcc": "7311",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MEZYAN": {
+      "mcc": "5812",
+      "note": "restaurant (5812). Distinct merchant from MEZYANE (5691 clothing) despite the one-letter difference",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MEZYANE": {
+      "note": "clothing (5691). Distinct from MEZYAN (5812 restaurant)",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MICROSOFT": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MICROSOFT365": {
+      "note": "kept separate from MICROSOFT - a named product line, not a spelling variant",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MIGROS": {
+      "aliases": [
+        "MGRS TURKEY",
+        "MIGROS TURKEY"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MIKE SPORT": {
+      "aliases": [
+        "MIKE S",
+        "MIKESPORT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MONEYGRAM": {
+      "aliases": [
+        "MNYGRM"
+      ],
+      "mcc": "4829",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MONOPRIX": {
+      "aliases": [
+        "MNPRX"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MOONPIG": {
+      "aliases": [
+        "MNPG"
+      ],
+      "mcc": "5947",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "MTA NEW YORK": {
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "NETFLIX": {
+      "aliases": [
+        "NTFLX"
+      ],
+      "mcc": "4899",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "NHS PRESCRIPTION": {
+      "aliases": [
+        "NHS P"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "NIKE STORE": {
+      "aliases": [
+        "NIKE STR",
+        "NIKESTORE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "NINTENDO ESHOP": {
+      "aliases": [
+        "NINTENDO E"
+      ],
+      "mcc": "5815",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "NOON COM": {
+      "aliases": [
+        "NOON C",
+        "NOONCOM"
+      ],
+      "mcc": "5999",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "NOTION LABS": {
+      "aliases": [
+        "NOTION L",
+        "NOTIONLABS"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "OGERO": {
+      "aliases": [
+        "OGR"
+      ],
+      "mcc": "4814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "OMT MONEY TRANSFER": {
+      "aliases": [
+        "OMT MONEY TRF",
+        "OMT MT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "OOREDOO": {
+      "aliases": [
+        "OOREDOO Q",
+        "OOREDOO QATAR",
+        "OOREDOOQATAR"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "OPENAI": {
+      "aliases": [
+        "OPN"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "OSN STREAMING": {
+      "aliases": [
+        "OSNSTREAMING"
+      ],
+      "mcc": "4899",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PANDA SUPERMARKET": {
+      "aliases": [
+        "PANDA S",
+        "PANDA SPRMKT"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PARKING SERVICES": {
+      "aliases": [
+        "PARKING SL",
+        "PRKNG SERVICES"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PAYPAL TRANSFER": {
+      "aliases": [
+        "PAYPAL TRF",
+        "PYPL TRANSFER"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PHARMACIE DU LIBAN": {
+      "aliases": [
+        "PHARMACIE DL"
+      ],
+      "mcc": "5912",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PHARMACY FIRST": {
+      "aliases": [
+        "PHRMCY FIRST"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PHOENICIA HOTEL": {
+      "aliases": [
+        "PHOENICIA H"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PLANET FITNESS": {
+      "aliases": [
+        "PLANET F",
+        "PLNT FITNESS"
+      ],
+      "mcc": "7997",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PLAYSTATION STORE": {
+      "aliases": [
+        "PLYSTTN",
+        "PLYSTTN STORE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PRET A MANGER": {
+      "mcc": "5812",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "PURE GYM": {
+      "aliases": [
+        "PURE G"
+      ],
+      "mcc": "7997",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "QATAR AIRWAYS": {
+      "aliases": [
+        "QATAR A",
+        "QTR AIRWAYS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "QUEST DIAGNOSTICS": {
+      "aliases": [
+        "QST DIAGNOSTICS",
+        "QUEST D"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "RAKUTEN": {
+      "mcc": "5999",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "RATP PARIS": {
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "REGUS OFFICES": {
+      "aliases": [
+        "REGUS O"
+      ],
+      "mcc": "7399",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "REMITLY": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "REPSOL": {
+      "aliases": [
+        "RPSL"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "REVOLUT": {
+      "aliases": [
+        "RVLT"
+      ],
+      "mcc": "4829",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "RIA MONEY TRANSFER": {
+      "aliases": [
+        "RIA MONEY TRF",
+        "RIA MT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ROADSTER DINER": {
+      "aliases": [
+        "RDSTR DINER"
+      ],
+      "mcc": "5812",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ROYAL JORDANIAN": {
+      "aliases": [
+        "ROYALJORDANIAN"
+      ],
+      "mcc": "4511",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "RYANAIR": {
+      "aliases": [
+        "RYNR"
+      ],
+      "mcc": "4511",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "RYMCO SPARE PARTS": {
+      "aliases": [
+        "RYMCO SP"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SAFEWAY": {
+      "aliases": [
+        "SAFEWAY J",
+        "SAFEWAY JORDAN",
+        "SFWY JORDAN"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SAINSBURYS": {
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SALON MARIE JOSE": {
+      "aliases": [
+        "SALON MJ",
+        "SLN MARIE JOSE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SAMS CLUB": {
+      "aliases": [
+        "SAMS C"
+      ],
+      "mcc": "5300",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SANTANDER ATM": {
+      "mcc": "6011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SARAHS BAG": {
+      "aliases": [
+        "SRHS BAG"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SAUDIA AIRLINES": {
+      "aliases": [
+        "SAUDIA A"
+      ],
+      "mcc": "4511",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SAXO BANK": {
+      "aliases": [
+        "SAXO B"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SEPHORA": {
+      "aliases": [
+        "SEPHORA MIDDLE EAST",
+        "SPHR"
+      ],
+      "mcc": "5977",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SHAHID VIP": {
+      "aliases": [
+        "SHAHIDVIP",
+        "SHHD VIP"
+      ],
+      "mcc": "4899",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SHARAF DG": {
+      "aliases": [
+        "SHRF DG"
+      ],
+      "mcc": "5732",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SHEIN": {
+      "aliases": [
+        "SHN"
+      ],
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SHELL STATION": {
+      "aliases": [
+        "SHELL STN",
+        "SHLL STATION"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SHOPIFY BILLING": {
+      "aliases": [
+        "SHOPIFY B",
+        "SHOPIFYBILLING"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SKRILL": {
+      "mcc": "4829",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SLACK TECHNOLOGIES": {
+      "aliases": [
+        "SLACK T",
+        "SLACK TECH",
+        "SLCK TECHNOLOGIES"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SNCF CONNECT": {
+      "aliases": [
+        "SNCF C",
+        "SNCFCONNECT"
+      ],
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SPINNEYS": {
+      "aliases": [
+        "SPNNYS"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SPINNEYS EXPRESS": {
+      "aliases": [
+        "SPINNEYS E",
+        "SPNNYS EXPRESS"
+      ],
+      "note": "kept separate from SPINNEYS - distinct store format, not a spelling variant",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SPOTIFY": {
+      "mcc": "4899",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SQUARESPACE": {
+      "aliases": [
+        "SQRSPC"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "STAPLES OFFICE": {
+      "aliases": [
+        "STAPLES O",
+        "STPLS OFFICE"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "STARBUCKS": {
+      "aliases": [
+        "STRBCKS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "STC": {
+      "aliases": [
+        "STC SAUDI",
+        "STCSAUDI"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "STEAM GAMES": {
+      "aliases": [
+        "STEAM G",
+        "STM GAMES"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "STRIPE PAYOUT": {
+      "aliases": [
+        "STRIPEPAYOUT"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SUBWAY": {
+      "mcc": "5814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "SULTAN CENTER": {
+      "aliases": [
+        "SULTAN CENTER KW",
+        "SULTAN CTR KW"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TAKEALOT": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TALABAT": {
+      "mcc": "4215",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TEMU": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TESCO EXPRESS": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "THE BODY SHOP": {
+      "aliases": [
+        "THE BODY",
+        "THE BS"
+      ],
+      "mcc": "5977",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TOTAL FITNESS CTR": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TOTAL LEBANON": {
+      "aliases": [
+        "TOTAL L",
+        "TTL LEBANON"
+      ],
+      "note": "region suffix kept: TOTAL alone would collide with TOTAL WINE and TOTAL FITNESS CTR, which are unrelated merchants",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TOTAL WINE": {
+      "aliases": [
+        "TOTAL W"
+      ],
+      "mcc": "5921",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TOTERS": {
+      "aliases": [
+        "TTRS"
+      ],
+      "mcc": "4215",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TOUCH LEBANON": {
+      "aliases": [
+        "TOUCHLEBANON"
+      ],
+      "mcc": "4814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TRADER JOES": {
+      "aliases": [
+        "TRADER J",
+        "TRDR JOES"
+      ],
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TRANSPORT FOR LONDON": {
+      "aliases": [
+        "TRANSPORT FL",
+        "TRNSPRT FOR LONDON"
+      ],
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TRENITALIA": {
+      "aliases": [
+        "TRNTL"
+      ],
+      "mcc": "4111",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TSC S": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "TURKISH AIRLINES": {
+      "aliases": [
+        "TRKSH AIRLINES",
+        "TURKISHAIRLINES"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "UBER EATS": {
+      "aliases": [
+        "UBER E",
+        "UBEREATS"
+      ],
+      "mcc": "4215",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "UBER TRIP": {
+      "aliases": [
+        "UBER T",
+        "UBERTRIP"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "UDEMY": {
+      "aliases": [
+        "UDMY"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "UNION COOP": {
+      "aliases": [
+        "UNN COOP"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "UNIQLO": {
+      "aliases": [
+        "UNQL"
+      ],
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "UPWORK ESCROW": {
+      "aliases": [
+        "UPWORK E",
+        "UPWRK ESCROW"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "USJ BEIRUT": {
+      "aliases": [
+        "USJ B",
+        "USJBEIRUT"
+      ],
+      "mcc": "8220",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "VERO MODA BEIRUT": {
+      "aliases": [
+        "VERO MB"
+      ],
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "VIRGIN MEGASTORE": {
+      "aliases": [
+        "VIRGIN M",
+        "VIRGINMEGASTORE",
+        "VRGN MEGASTORE"
+      ],
+      "note": "VIRGIN M is 5942 (books/media) so it folds here, not into VIRGIN MOBILE (4814)",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "VIRGIN MOBILE": {
+      "aliases": [
+        "VIRGIN MOBILE KSA",
+        "VIRGINMOBILEKSA",
+        "VRGN MOBILE KSA"
+      ],
+      "mcc": "4814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "VISTAPRINT": {
+      "aliases": [
+        "VSTPRNT"
+      ],
+      "mcc": "7311",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "VODAFONE": {
+      "aliases": [
+        "VODAFONE EGYPT"
+      ],
+      "mcc": "4814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "VUE CINEMAS": {
+      "aliases": [
+        "VUECINEMAS"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WAITROSE": {
+      "aliases": [
+        "WTRS"
+      ],
+      "mcc": "5411",
+      "note": "WTRS is Waitrose (5411 grocery, GB), NOT Waterstones (5942 books) - the two vowel-dropped forms look alike and are different merchants",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WAKILNI DELIVERY": {
+      "aliases": [
+        "WAKILNIDELIVERY"
+      ],
+      "mcc": "4215",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WALGREENS": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WATERSTONES": {
+      "aliases": [
+        "WTRSTNS"
+      ],
+      "note": "see WAITROSE - do not merge",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WAYFAIR": {
+      "aliases": [
+        "WYFR"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WESTERN UNION": {
+      "aliases": [
+        "WESTERN UL",
+        "WESTERN UNION LB",
+        "WSTRN UNION LB"
+      ],
+      "mcc": "4829",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WEWORK": {
+      "mcc": "7399",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WHOLE FOODS MARKET": {
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "WISE TRANSFER": {
+      "aliases": [
+        "WISE T",
+        "WISETRANSFER"
+      ],
+      "mcc": "4829",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "XBOX LIVE": {
+      "aliases": [
+        "XBOX L",
+        "XBOXLIVE"
+      ],
+      "mcc": "5815",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "XOOM TRANSFER": {
+      "aliases": [
+        "XOOM T",
+        "XOOM TRF",
+        "XOOMTRANSFER"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "YOUTUBE PREMIUM": {
+      "aliases": [
+        "YOUTUBE P",
+        "YOUTUBE PREM"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ZAATAR W ZEIT": {
+      "aliases": [
+        "ZAATAR WZ"
+      ],
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ZARA": {
+      "mcc": "5651",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    },
+    "ZOOM VIDEO": {
+      "aliases": [
+        "ZOOM V",
+        "ZOOMVIDEO"
+      ],
+      "mcc": "7372",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-17"
+    }
+  }
+}

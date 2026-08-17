@@ -1,0 +1,19 @@
+{
+  "_comment": "Canonical city -> spellings seen in the source. Transliteration variants (BEYROUTH/BEYRUT) and card-not-present markers (ECOM/E-COMMERCE) both collapse here.",
+  "aliases": {
+    "INTERNET": ["ECOM", "E-COMMERCE", "ECOMMERCE"],
+    "BEIRUT": ["BEIRUT LB", "BEYROUTH", "BEYRUT", "BAYRUT"],
+    "JOUNIEH": ["JOUNIE", "JUNIYAH"],
+    "TRIPOLI": ["TARABLUS", "TRABLOUS"],
+    "SIDON": ["SAYDA", "SAIDA"],
+    "BYBLOS": ["JBEIL", "JBAIL"],
+    "ZAHLE": ["ZAHLEH"],
+    "ACHRAFIEH": ["ASHRAFIYA", "ASHRAFIEH"],
+    "HAMRA": ["AL HAMRA"],
+    "DUBAI": ["DUBAYY"],
+    "CAIRO": ["AL QAHIRAH"],
+    "KUWAIT CITY": ["AL KUWAYT"],
+    "ISTANBUL": ["ISTANBOUL"]
+  },
+  "ecommerce_tokens": ["INTERNET", "ECOM", "E-COMMERCE", "ECOMMERCE"]
+}

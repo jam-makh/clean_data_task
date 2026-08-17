@@ -1,0 +1,105 @@
+"""End-to-end behaviour and the output contract."""
+
+import pandas as pd
+
+from cleaning_task.main import build_sheets, clean_transactions
+from cleaning_task.pipeline import TransactionCleaner
+from cleaning_task.utils.columns import SUPERSEDED, presented
+from cleaning_task.utils.io import read_workbook, write_workbook
+
+ADDED_COLUMNS = [
+    "TXN_ID_SEQ", "TXN_DATE_TIME_CLEAN", "SETTLE_DATE_CLEAN", "SETTLE_DATE_STATUS",
+    "TXN_AMOUNT_CLEAN", "PROCESSING_CODE_ISO", "PROCESSING_TYPE_CLEAN",
+    "MCC_CODE_STR", "MCC_CATEGORY", "MCC_CODE_SUGGESTED", "MCC_CONFIDENCE",
+    "MERCHANT_NAME_CLEAN", "MERCHANT_PROCESSOR", "MERCHANT_CITY_CLEAN",
+    "HAS_TERMINAL", "AUTH_CODE_VALID", "IS_ECOMMERCE", "VALIDATION_FLAGS",
+]
+
+
+def test_output_contract(transactions, mcc_reference):
+    cleaned, _ = clean_transactions(transactions, mcc_reference=mcc_reference)
+    for column in ADDED_COLUMNS:
+        assert column in cleaned.columns, column
+
+
+def test_no_rows_are_lost(transactions, mcc_reference):
+    """Rows are only ever mirrored into review sheets, never removed."""
+    cleaned, report = clean_transactions(transactions, mcc_reference=mcc_reference)
+    assert len(cleaned) == len(transactions)
+
+
+def test_originals_are_untouched(transactions, mcc_reference):
+    cleaned, _ = clean_transactions(transactions, mcc_reference=mcc_reference)
+    for column in transactions.columns:
+        assert cleaned[column].equals(transactions[column]), column
+
+
+def test_steps_are_injectable(transactions):
+    """Running one cleaner alone must work, for development and testing."""
+    from cleaning_task.cleaners import DateNormalizer
+
+    cleaned, _ = clean_transactions(transactions, steps=[DateNormalizer])
+    assert "TXN_DATE_TIME_CLEAN" in cleaned.columns
+    assert "MERCHANT_NAME_CLEAN" not in cleaned.columns
+
+
+def test_report_records_every_step(transactions, mcc_reference):
+    _, report = clean_transactions(transactions, mcc_reference=mcc_reference)
+    steps = {step for step, _, _ in report.entries}
+    assert {"dates", "amounts", "merchant", "mcc", "consistency"} <= steps
+
+
+def test_workbook_has_every_sheet(tmp_path, transactions, mcc_reference):
+    cleaner = TransactionCleaner(mcc_reference=mcc_reference)
+    cleaned = cleaner.run(transactions)
+    sheets = build_sheets(transactions, cleaned, cleaner, mcc_reference)
+    destination = tmp_path / "out.xlsx"
+    write_workbook(destination, sheets)
+
+    written = pd.ExcelFile(destination)
+    assert set(written.sheet_names) >= {
+        "raw_transactions", "cleaned_transactions", "mcc_codes",
+        "pending_settlement", "anomaly_settlement", "mcc_review",
+    }
+    assert len(written.parse("cleaned_transactions")) == len(
+        written.parse("raw_transactions")
+    )
+
+
+def test_cleaned_sheets_carry_no_superseded_raw_columns(
+    tmp_path, transactions, mcc_reference
+):
+    """A text TXN_AMOUNT beside a float one invites a total from the wrong column."""
+    cleaner = TransactionCleaner(mcc_reference=mcc_reference)
+    cleaned = cleaner.run(transactions)
+    sheets = build_sheets(transactions, cleaned, cleaner, mcc_reference)
+    destination = tmp_path / "out.xlsx"
+    write_workbook(destination, sheets)
+
+    written = pd.ExcelFile(destination)
+    for sheet in ("cleaned_transactions", "pending_settlement", "anomaly_settlement"):
+        columns = set(written.parse(sheet).columns)
+        assert not columns & set(SUPERSEDED), sheet
+        assert set(SUPERSEDED.values()) <= columns, sheet
+
+    # The raw values are one sheet away, not gone.
+    assert set(written.parse("raw_transactions").columns) == set(transactions.columns)
+
+
+def test_presented_keeps_a_raw_column_with_no_replacement(transactions, mcc_reference):
+    """A partial pipeline must never drop the only copy of a field."""
+    cleaner = TransactionCleaner(steps=[], mcc_reference=mcc_reference)
+    view = presented(cleaner.run(transactions))
+    assert set(view.columns) == set(transactions.columns)
+
+
+def test_dates_are_written_in_display_format(tmp_path, transactions, mcc_reference):
+    """dd-mm-yyyy is applied on write; the frame holds real datetimes."""
+    cleaner = TransactionCleaner(mcc_reference=mcc_reference)
+    cleaned = cleaner.run(transactions)
+    assert pd.api.types.is_datetime64_any_dtype(cleaned["TXN_DATE_TIME_CLEAN"])
+
+    destination = tmp_path / "out.xlsx"
+    write_workbook(destination, {"cleaned_transactions": cleaned})
+    written = pd.ExcelFile(destination).parse("cleaned_transactions", dtype=object)
+    assert str(written["TXN_DATE_TIME_CLEAN"].iat[0]) == "10-03-2022 00:51:36"

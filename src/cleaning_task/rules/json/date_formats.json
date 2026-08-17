@@ -1,0 +1,15 @@
+{
+  "_comment": "Tried in order; first regex match wins. ISO is first because YYYY-MM-DD and MM-DD-YYYY both use dashes. The separator decides day/month order: '/' is day-first (630 unambiguous rows, 0 counterexamples), '-' is month-first (371, 0 counterexamples). Never fall back to a guessing parser.",
+  "null_tokens": ["", "0000-00-00", "0000-00-00 00:00:00", "1970-01-01", "1970-01-01 00:00:00"],
+  "formats": [
+    {"regex": "^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}$", "strptime": "%Y-%m-%d %H:%M:%S", "name": "iso_datetime"},
+    {"regex": "^\\d{4}-\\d{2}-\\d{2}$", "strptime": "%Y-%m-%d", "name": "iso_date"},
+    {"regex": "^\\d{13}$", "strptime": "EPOCH_MS", "name": "epoch_millis"},
+    {"regex": "^\\d{2}-[A-Za-z]{3}-\\d{2} \\d{2}:\\d{2}$", "strptime": "%d-%b-%y %H:%M", "name": "day_month_abbrev_datetime"},
+    {"regex": "^\\d{2}-[A-Za-z]{3}-\\d{2}$", "strptime": "%d-%b-%y", "name": "day_month_abbrev"},
+    {"regex": "^\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}$", "strptime": "%d/%m/%Y %H:%M", "name": "slash_day_first_datetime"},
+    {"regex": "^\\d{2}/\\d{2}/\\d{4}$", "strptime": "%d/%m/%Y", "name": "slash_day_first"},
+    {"regex": "^\\d{2}-\\d{2}-\\d{4} \\d{2}:\\d{2}$", "strptime": "%m-%d-%Y %H:%M", "name": "dash_month_first_datetime"},
+    {"regex": "^\\d{2}-\\d{2}-\\d{4}$", "strptime": "%m-%d-%Y", "name": "dash_month_first"}
+  ]
+}

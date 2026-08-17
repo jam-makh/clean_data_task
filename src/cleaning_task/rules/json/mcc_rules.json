@@ -1,0 +1,17 @@
+{
+  "_comment": "Suspect codes are those attached to merchants they cannot describe. 5999 is a bucket with no positive meaning and can never win against a specific code. 5812 and 5817 are real categories also used as noise, so they only lose head-to-head against another specific code.",
+  "catch_all": "5999",
+  "suspect_codes": ["5999", "5812", "5817"],
+  "deterministic": [
+    {
+      "when_column": "PROCESSING_TYPE",
+      "when_value": "ATM Cash Withdrawal",
+      "expect_mcc": "6011",
+      "flag": "MCC_ATM_MISMATCH"
+    }
+  ],
+  "confidence": {
+    "binomial_high": 0.05,
+    "binomial_medium": 0.20
+  }
+}

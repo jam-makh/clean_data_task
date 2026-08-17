@@ -1,0 +1,13 @@
+{
+  "_comment": "Payment-processor prefixes that appear left of '*' in merchant strings. The split only fires when the left token is one of these, because the merchant is on the left in the other 114 cases (COURSERA.COM *W2PA). Derived by frequency: a processor precedes many unrelated merchants, a merchant appears once.",
+  "prefixes": [
+    "SQ",
+    "IZ",
+    "TST",
+    "WPY",
+    "SP",
+    "PP",
+    "PAYPAL",
+    "GOOGLE"
+  ]
+}

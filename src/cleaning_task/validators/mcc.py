@@ -1,0 +1,259 @@
+"""MCC validation: curated overrides, deterministic rules, and a review queue."""
+
+import math
+from collections import Counter
+
+import pandas as pd
+
+from cleaning_task.cleaners.base import BaseCleaner
+from cleaning_task.rules import loader
+
+# Three states, because three is what a reader can act on: the code is settled,
+# it is inferred, or a human still has to decide. Which rule produced a settled
+# code is recorded in the review sheet and in merchants.json, so collapsing the
+# tiers here costs no provenance.
+HIGH, MEDIUM, PENDING = "HIGH", "MEDIUM", "PENDING"
+CONFIDENCE_ORDER = [HIGH, MEDIUM, PENDING]
+
+
+class MccValidator(BaseCleaner):
+    """
+    Assigns an MCC suggestion and a confidence tier without ever overwriting
+    ``MCC_CODE``.
+
+    Signals are applied in priority order: a curated override, then the
+    deterministic ATM rule, then the catch-all override, then a tiebreak
+    against suspect codes, then majority vote scored by a binomial tail.
+    """
+
+    name = "mcc"
+
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame:
+        if "MCC_CODE_STR" not in df.columns or "MERCHANT_NAME_CLEAN" not in df.columns:
+            return df
+
+        df = df.copy()
+        rules = loader.mcc_rules()
+        # Only entries that actually assert an MCC are overrides; a master
+        # entry carrying just aliases says nothing about categorisation.
+        overrides = {
+            name: entry
+            for name, entry in loader.merchants().items()
+            if "mcc" in entry
+        }
+        catch_all = rules["catch_all"]
+        suspect = set(rules["suspect_codes"])
+        thresholds = rules["confidence"]
+
+        decisions = self._decide_per_merchant(
+            df, overrides, catch_all, suspect, thresholds
+        )
+        self.decisions = decisions
+
+        suggested, confidence, signal = [], [], []
+        for merchant, current in zip(df["MERCHANT_NAME_CLEAN"], df["MCC_CODE_STR"]):
+            decision = decisions.get(merchant)
+            if decision is None or decision["mcc"] in (None, current):
+                suggested.append("")
+                confidence.append(decision["confidence"] if decision else "NONE")
+                signal.append(decision["signal"] if decision else "")
+            else:
+                suggested.append(decision["mcc"])
+                confidence.append(decision["confidence"])
+                signal.append(decision["signal"])
+
+        df["MCC_CODE_SUGGESTED"] = suggested
+        df["MCC_CONFIDENCE"] = pd.Categorical(confidence, categories=CONFIDENCE_ORDER)
+        # Which rule fired is not carried per row -- it would repeat the same
+        # value across every row of a merchant. It stays on the review sheet,
+        # where one row is one decision.
+        df["_MCC_SIGNAL"] = signal
+
+        df = self._apply_deterministic(df, rules)
+
+        for tier in CONFIDENCE_ORDER:
+            n = int((df["MCC_CONFIDENCE"] == tier).sum())
+            if n:
+                self.log(f"confidence[{tier}]", n)
+        # Logged so the provenance the tiers no longer distinguish stays
+        # measurable: how many rows rest on a human assertion, not a heuristic.
+        for name, n in df["_MCC_SIGNAL"].value_counts().items():
+            if name:
+                self.log(f"signal[{name}]", int(n))
+        self.log("rows_with_suggestion", int((df["MCC_CODE_SUGGESTED"] != "").sum()))
+        return df.drop(columns=["_MCC_SIGNAL"])
+
+    def _decide_per_merchant(
+        self, df, overrides, catch_all, suspect, thresholds
+    ) -> dict[str, dict]:
+        """
+        :returns: Merchant key to {mcc, confidence, signal, observed, p_value}.
+        """
+        out: dict[str, dict] = {}
+        for merchant, group in df.groupby("MERCHANT_NAME_CLEAN", sort=False):
+            if not merchant:
+                continue
+            counts = Counter(group["MCC_CODE_STR"])
+            observed = dict(counts.most_common())
+
+            # A human assertion is settled by definition.
+            if merchant in overrides:
+                out[merchant] = {
+                    "mcc": overrides[merchant]["mcc"],
+                    "confidence": HIGH,
+                    "signal": "curated",
+                    "observed": observed,
+                    "p_value": None,
+                }
+                continue
+
+            # One code across every row of this merchant: nothing disagrees,
+            # so there is nothing to resolve and nothing to review.
+            if len(counts) == 1:
+                out[merchant] = {
+                    "mcc": None,
+                    "confidence": HIGH,
+                    "signal": "consistent",
+                    "observed": observed,
+                    "p_value": None,
+                }
+                continue
+
+            out[merchant] = self._resolve(
+                observed, counts, catch_all, suspect, thresholds
+            )
+        return out
+
+    @staticmethod
+    def _resolve(observed, counts, catch_all, suspect, thresholds) -> dict:
+        """
+        Applies the automated signals to one conflicting merchant.
+
+        :returns: The decision dict for that merchant.
+        """
+        (top, top_n), *rest = counts.most_common()
+        second_n = rest[0][1] if rest else 0
+        n = sum(counts.values())
+        p_value = MccValidator._binomial_tail(n, len(counts), top_n)
+
+        specific = {c: k for c, k in counts.items() if c != catch_all}
+
+        # A catch-all carries no positive information, so it can never win
+        # against a specific code -- this deliberately overrides the majority.
+        if top == catch_all and specific:
+            best = max(specific, key=specific.get)
+            return {
+                "mcc": best,
+                "confidence": MEDIUM,
+                "signal": "catch_all_override",
+                "observed": observed,
+                "p_value": p_value,
+            }
+
+        if top_n == second_n:
+            tied = {c for c, k in counts.items() if k == top_n}
+            non_suspect = tied - suspect
+            if len(non_suspect) == 1:
+                return {
+                    "mcc": next(iter(non_suspect)),
+                    "confidence": MEDIUM,
+                    "signal": "suspect_tiebreak",
+                    "observed": observed,
+                    "p_value": p_value,
+                }
+            return {
+                "mcc": None,
+                "confidence": PENDING,
+                "signal": "unresolved_tie",
+                "observed": observed,
+                "p_value": p_value,
+            }
+
+        if p_value <= thresholds["binomial_high"]:
+            tier = HIGH
+        elif p_value <= thresholds["binomial_medium"]:
+            tier = MEDIUM
+        else:
+            tier = PENDING
+        return {
+            "mcc": top if tier != PENDING else None,
+            "confidence": tier,
+            "signal": "weak_majority" if tier == PENDING else "majority",
+            "observed": observed,
+            "p_value": p_value,
+        }
+
+    @staticmethod
+    def _binomial_tail(n: int, k: int, hits: int) -> float:
+        """
+        Probability of seeing at least ``hits`` of one code in ``n`` rows if
+        all ``k`` observed codes were equally likely — a small value means the
+        majority is unlikely to be an accident.
+
+        :returns: The upper-tail probability.
+        """
+        p = 1 / k
+        return sum(
+            math.comb(n, i) * p**i * (1 - p) ** (n - i) for i in range(hits, n + 1)
+        )
+
+    def _apply_deterministic(self, df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+        """
+        Applies rules where another column independently fixes the MCC.
+
+        :returns: The frame with deterministic overrides applied.
+        """
+        for rule in rules.get("deterministic", []):
+            column = rule["when_column"]
+            if column not in df.columns:
+                continue
+            target = df[column].map(self.text) == rule["when_value"]
+            wrong = target & (df["MCC_CODE_STR"] != rule["expect_mcc"])
+            df.loc[wrong, "MCC_CODE_SUGGESTED"] = rule["expect_mcc"]
+            df.loc[wrong, "MCC_CONFIDENCE"] = "HIGH"
+            df.loc[wrong, "_MCC_SIGNAL"] = "deterministic"
+
+            # Flag per row, not only in the report -- a deterministic violation
+            # has to be traceable to the transaction that caused it.
+            if "VALIDATION_FLAGS" not in df.columns:
+                df["VALIDATION_FLAGS"] = ""
+            df.loc[wrong, "VALIDATION_FLAGS"] = (
+                df.loc[wrong, "VALIDATION_FLAGS"]
+                .replace("", pd.NA)
+                .fillna(rule["flag"])
+                .where(lambda s: s == rule["flag"], lambda s: s + ";" + rule["flag"])
+            )
+            self.log(f"{rule['flag']}", int(wrong.sum()))
+        return df
+
+    def review_queue(self) -> pd.DataFrame:
+        """
+        Builds the human work queue: one row per merchant whose MCC is still
+        undecided. ``HIGH`` and ``MEDIUM`` are settled and do not appear —
+        putting a resolved merchant in a work queue trains reviewers to skim it.
+
+        :returns: Frame ready to write as the ``mcc_review`` sheet.
+        """
+        rows = []
+        for merchant, d in getattr(self, "decisions", {}).items():
+            if d["confidence"] != PENDING:
+                continue
+            rows.append(
+                {
+                    "MERCHANT_NAME_CLEAN": merchant,
+                    "MCC_OBSERVED": str(d["observed"]),
+                    "MCC_CODE_SUGGESTED": d["mcc"] or "",
+                    "MCC_CONFIDENCE": d["confidence"],
+                    "BINOMIAL_P": round(d["p_value"], 4) if d["p_value"] else None,
+                    "SIGNAL": d["signal"],
+                    "ROW_COUNT": sum(d["observed"].values()),
+                }
+            )
+        return pd.DataFrame(rows).sort_values(
+            ["MCC_CONFIDENCE", "ROW_COUNT"], ascending=[True, False]
+        ) if rows else pd.DataFrame(
+            columns=[
+                "MERCHANT_NAME_CLEAN", "MCC_OBSERVED", "MCC_CODE_SUGGESTED",
+                "MCC_CONFIDENCE", "BINOMIAL_P", "SIGNAL", "ROW_COUNT",
+            ]
+        )
