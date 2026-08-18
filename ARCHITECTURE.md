@@ -76,7 +76,7 @@ flowchart LR
 
 ---
 
-## Stage 1 — Dates
+## Stage 1: Dates
 
 **In:** `TXN_DATE_TIME`, `SETTLE_DATE` — 5 formats across 2 columns
 **Out:** `TXN_DATE_TIME_CLEANED`, `SETTLE_DATE_CLEANED` as `datetime64`
@@ -119,7 +119,7 @@ silently loses rows to a format nobody noticed.
 
 ---
 
-## Stage 2 — Duplicates
+## Stage 2: Duplicates
 
 **In:** the full frame
 **Out:** same rows, plus `TXN_ID_SEQ`
@@ -148,7 +148,7 @@ This stage is a no-op on the current file and exists for the next one.
 
 ---
 
-## Stage 3 — Codes
+## Stage 3: Codes
 
 **In:** `PROCESSING_CODE` (int), `MCC_CODE`
 **Out:** `PROCESSING_CODE_CLEANED`, `PROCESSING_TYPE_CLEANED`, `MCC_CODE_CLEANED`, `MCC_CATEGORY`
@@ -185,7 +185,7 @@ WITHDRAWAL"` still lands on one canonical value, and the disagreement is counted
 
 ---
 
-## Stage 4 — Amounts
+## Stage 4: Amounts
 
 **In:** `TXN_AMOUNT` stored as **text**
 **Out:** `TXN_AMOUNT_CLEANED` as float, signed by transaction type
@@ -256,7 +256,7 @@ are counted as `TXN_AMOUNT_CLEANED.sign_restored` **and** flagged
 
 ---
 
-## Stage 5 — Missing values
+## Stage 5: Missing values
 
 **In:** `TERMINAL_ID`, `AUTH_CODE`, `SETTLE_DATE_CLEANED`
 **Out:** `HAS_TERMINAL`, `AUTH_CODE_VALID`, `SETTLE_DATE_STATUS`
@@ -325,7 +325,7 @@ So a repeat is a planted value, not chance. Threshold is 2. **4 values repeat.**
 
 ---
 
-## Stage 6 — Merchants
+## Stage 6: Merchants
 
 **In:** `MERCHANT_NAME` — the dirtiest column
 **Out:** `MERCHANT_NAME_CLEANED`, `MERCHANT_PROCESSOR`, `MERCHANT_RECOGNISED`, `merchant_review` sheet
@@ -389,7 +389,7 @@ pure digits, not first    -> store number        #70, 3382    drop
 pure digits, first        -> part of the name    7 ELEVEN     keep
 ```
 
-### Half 2 — the merchant master
+### Half 2: the merchant master
 
 String cleaning gets variants *close* but never *equal*. One merchant arrives in
 up to five forms:
@@ -446,7 +446,7 @@ would collide with the unrelated `TOTAL WINE` and `TOTAL FITNESS CTR`.
 
 ---
 
-## Stage 7 — Cities
+## Stage 7: Cities
 
 **In:** `MERCHANT_CITY`, `MERCHANT_COUNTRY`
 **Out:** `MERCHANT_CITY_CLEANED`, `IS_ECOMMERCE`, `MERCHANT_COUNTRY_EXPECTED`
@@ -529,7 +529,7 @@ into a city column would encode the same thing twice, in a fake location.
 
 ---
 
-## Stage 8 — MCC
+## Stage 8: MCC
 
 **In:** `MCC_CODE_CLEANED`, `MERCHANT_NAME_CLEANED`, `PROCESSING_TYPE`
 **Out:** `MCC_CODE_SUGGESTED`, `MCC_CONFIDENCE`, `mcc_review` sheet
@@ -660,10 +660,10 @@ master is authoritative and needs no guessing.
 
 ---
 
-## Stage 9 — Consistency
+## Stage 9: Consistency
 
 **In:** every derived column
-**Out:** `VALIDATION_FLAGS` — changes no data
+**Out:** `VALIDATION_FLAGS` (changes no data)
 
 ### The idea
 
