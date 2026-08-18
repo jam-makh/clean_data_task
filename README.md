@@ -1,6 +1,6 @@
 # Transaction Cleaning Pipeline
 
-> As part of the onboarding I have been tasked to clean the following data (I have noticed many of the cleaning steps are also done in the transaction categorization pipeline).
+_This task was realized as part of the Onboarding at X-Tends' Machine Learning Team by Joseph Am-Makhlouf_
 
 A class-based cleaning pipeline for a 2,296-row card transactions workbook, exposing one importable function and emitting a multi-sheet workbook that behaves like a small database.
 
