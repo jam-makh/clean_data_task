@@ -33,4 +33,6 @@ class CleaningReport:
         if not self.entries:
             return "(nothing recorded)"
         width = max(len(s) for s, _, _ in self.entries)
-        return "\n".join(f"  {s:<{width}}  {m:<34} {v}" for s, m, v in self.entries)
+        return "\n".join(
+            f"  {s:<{width}}  {m:<34} {v}" for s, m, v in self.entries
+        )

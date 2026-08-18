@@ -1,12 +1,12 @@
-"""MCC validation: curated overrides, deterministic rules, and a review queue."""
+"""MCC validation: curated overrides, rules, and a review queue."""
 
 import math
 from collections import Counter
 
 import pandas as pd
 
-from cleaning_task.cleaners.base import BaseCleaner
-from cleaning_task.rules import loader
+from src.cleaners.base import BaseCleaner
+from src.rules import loader
 
 # Three states, because three is what a reader can act on: the code is settled,
 # it is inferred, or a human still has to decide. Which rule produced a settled
@@ -29,7 +29,8 @@ class MccValidator(BaseCleaner):
     name = "mcc"
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
-        if "MCC_CODE_STR" not in df.columns or "MERCHANT_NAME_CLEAN" not in df.columns:
+        needed = {"MCC_CODE_CLEANED", "MERCHANT_NAME_CLEANED"}
+        if not needed.issubset(df.columns):
             return df
 
         df = df.copy()
@@ -51,11 +52,14 @@ class MccValidator(BaseCleaner):
         self.decisions = decisions
 
         suggested, confidence, signal = [], [], []
-        for merchant, current in zip(df["MERCHANT_NAME_CLEAN"], df["MCC_CODE_STR"]):
+        pairs = zip(df["MERCHANT_NAME_CLEANED"], df["MCC_CODE_CLEANED"])
+        for merchant, current in pairs:
             decision = decisions.get(merchant)
             if decision is None or decision["mcc"] in (None, current):
                 suggested.append("")
-                confidence.append(decision["confidence"] if decision else "NONE")
+                confidence.append(
+                    decision["confidence"] if decision else "NONE"
+                )
                 signal.append(decision["signal"] if decision else "")
             else:
                 suggested.append(decision["mcc"])
@@ -63,7 +67,9 @@ class MccValidator(BaseCleaner):
                 signal.append(decision["signal"])
 
         df["MCC_CODE_SUGGESTED"] = suggested
-        df["MCC_CONFIDENCE"] = pd.Categorical(confidence, categories=CONFIDENCE_ORDER)
+        df["MCC_CONFIDENCE"] = pd.Categorical(
+            confidence, categories=CONFIDENCE_ORDER
+        )
         # Which rule fired is not carried per row -- it would repeat the same
         # value across every row of a merchant. It stays on the review sheet,
         # where one row is one decision.
@@ -80,7 +86,21 @@ class MccValidator(BaseCleaner):
         for name, n in df["_MCC_SIGNAL"].value_counts().items():
             if name:
                 self.log(f"signal[{name}]", int(n))
-        self.log("rows_with_suggestion", int((df["MCC_CODE_SUGGESTED"] != "").sum()))
+        self.log(
+            "rows_with_suggestion", int((df["MCC_CODE_SUGGESTED"] != "").sum())
+        )
+
+        # One MCC column leaves the pipeline, holding the code that survived
+        # validation. A suggestion only exists at HIGH or MEDIUM confidence --
+        # PENDING resolves to no code at all -- so adopting it here never
+        # promotes a guess. The code the file arrived with is still in
+        # raw_transactions, and MCC_CONFIDENCE says how the final one was
+        # reached.
+        adopted = df["MCC_CODE_SUGGESTED"] != ""
+        df.loc[adopted, "MCC_CODE_CLEANED"] = df.loc[
+            adopted, "MCC_CODE_SUGGESTED"
+        ]
+        self.log("mcc_code.reassigned", int(adopted.sum()))
         return df.drop(columns=["_MCC_SIGNAL"])
 
     def _decide_per_merchant(
@@ -90,10 +110,10 @@ class MccValidator(BaseCleaner):
         :returns: Merchant key to {mcc, confidence, signal, observed, p_value}.
         """
         out: dict[str, dict] = {}
-        for merchant, group in df.groupby("MERCHANT_NAME_CLEAN", sort=False):
+        for merchant, group in df.groupby("MERCHANT_NAME_CLEANED", sort=False):
             if not merchant:
                 continue
-            counts = Counter(group["MCC_CODE_STR"])
+            counts = Counter(group["MCC_CODE_CLEANED"])
             observed = dict(counts.most_common())
 
             # A human assertion is settled by definition.
@@ -140,7 +160,11 @@ class MccValidator(BaseCleaner):
 
         # A catch-all carries no positive information, so it can never win
         # against a specific code -- this deliberately overrides the majority.
-        if top == catch_all and specific:
+        # "Win" includes drawing: a tie the catch-all is part of is a tie only
+        # because a code meaning "something else" was counted as evidence, and
+        # sending that to a human to arbitrate asks them to weigh nothing
+        # against something.
+        if specific and counts.get(catch_all, 0) >= max(specific.values()):
             best = max(specific, key=specific.get)
             return {
                 "mcc": best,
@@ -194,10 +218,13 @@ class MccValidator(BaseCleaner):
         """
         p = 1 / k
         return sum(
-            math.comb(n, i) * p**i * (1 - p) ** (n - i) for i in range(hits, n + 1)
+            math.comb(n, i) * p**i * (1 - p) ** (n - i)
+            for i in range(hits, n + 1)
         )
 
-    def _apply_deterministic(self, df: pd.DataFrame, rules: dict) -> pd.DataFrame:
+    def _apply_deterministic(
+        self, df: pd.DataFrame, rules: dict
+    ) -> pd.DataFrame:
         """
         Applies rules where another column independently fixes the MCC.
 
@@ -208,7 +235,7 @@ class MccValidator(BaseCleaner):
             if column not in df.columns:
                 continue
             target = df[column].map(self.text) == rule["when_value"]
-            wrong = target & (df["MCC_CODE_STR"] != rule["expect_mcc"])
+            wrong = target & (df["MCC_CODE_CLEANED"] != rule["expect_mcc"])
             df.loc[wrong, "MCC_CODE_SUGGESTED"] = rule["expect_mcc"]
             df.loc[wrong, "MCC_CONFIDENCE"] = "HIGH"
             df.loc[wrong, "_MCC_SIGNAL"] = "deterministic"
@@ -221,7 +248,10 @@ class MccValidator(BaseCleaner):
                 df.loc[wrong, "VALIDATION_FLAGS"]
                 .replace("", pd.NA)
                 .fillna(rule["flag"])
-                .where(lambda s: s == rule["flag"], lambda s: s + ";" + rule["flag"])
+                .where(
+                    lambda s: s == rule["flag"],
+                    lambda s: s + ";" + rule["flag"],
+                )
             )
             self.log(f"{rule['flag']}", int(wrong.sum()))
         return df
@@ -230,7 +260,8 @@ class MccValidator(BaseCleaner):
         """
         Builds the human work queue: one row per merchant whose MCC is still
         undecided. ``HIGH`` and ``MEDIUM`` are settled and do not appear —
-        putting a resolved merchant in a work queue trains reviewers to skim it.
+        putting a resolved merchant in a work queue trains reviewers to skim
+        it.
 
         :returns: Frame ready to write as the ``mcc_review`` sheet.
         """
@@ -240,11 +271,13 @@ class MccValidator(BaseCleaner):
                 continue
             rows.append(
                 {
-                    "MERCHANT_NAME_CLEAN": merchant,
+                    "MERCHANT_NAME_CLEANED": merchant,
                     "MCC_OBSERVED": str(d["observed"]),
                     "MCC_CODE_SUGGESTED": d["mcc"] or "",
                     "MCC_CONFIDENCE": d["confidence"],
-                    "BINOMIAL_P": round(d["p_value"], 4) if d["p_value"] else None,
+                    "BINOMIAL_P": (
+                        round(d["p_value"], 4) if d["p_value"] else None
+                    ),
                     "SIGNAL": d["signal"],
                     "ROW_COUNT": sum(d["observed"].values()),
                 }
@@ -253,7 +286,7 @@ class MccValidator(BaseCleaner):
             ["MCC_CONFIDENCE", "ROW_COUNT"], ascending=[True, False]
         ) if rows else pd.DataFrame(
             columns=[
-                "MERCHANT_NAME_CLEAN", "MCC_OBSERVED", "MCC_CODE_SUGGESTED",
+                "MERCHANT_NAME_CLEANED", "MCC_OBSERVED", "MCC_CODE_SUGGESTED",
                 "MCC_CONFIDENCE", "BINOMIAL_P", "SIGNAL", "ROW_COUNT",
             ]
         )

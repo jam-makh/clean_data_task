@@ -2,7 +2,7 @@
 
 import pytest
 
-from cleaning_task.cleaners.amounts import AmountNormalizer
+from src.cleaners.amounts import AmountNormalizer
 
 parse = AmountNormalizer.parse
 
@@ -27,7 +27,10 @@ def test_conventions(raw, currency, expected):
 
 
 def test_currency_breaks_the_genuine_tie():
-    """A lone comma before three digits is ambiguous; a zero-decimal currency settles it."""
+    """
+    A lone comma before three digits is ambiguous; a zero-decimal currency
+    settles it.
+    """
     assert parse("1,500", "LBP") == 1500.0    # no minor unit -> thousands
     assert parse("1,500", "USD") == 1.500     # has minor unit -> decimal
 
@@ -40,4 +43,4 @@ def test_unreadable_returns_none_rather_than_zero():
 def test_source_file_parses_completely(transactions, report):
     """All 15 awkward values in the real file must resolve."""
     df = AmountNormalizer(report).apply(transactions)
-    assert df["TXN_AMOUNT_CLEAN"].isna().sum() == 0
+    assert df["TXN_AMOUNT_CLEANED"].isna().sum() == 0

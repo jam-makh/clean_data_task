@@ -1,0 +1,8 @@
+{
+  "_comment": "ISO 8583 field 3 is a fixed-length six-digit numeric field read as three 2-digit pairs (transaction type, from-account, to-account); this source carries only the leading pair, hence CODE_WIDTH=2 in codes.py. Because the field is positional, 0 and 00 are different tokens, which is what the padding restores after Excel read the column as an integer. The labels below are NOT taken from the standard -- published transaction-type tables disagree with each other, one reading 20 as Balance Inquiry. They are taken from the source file, where PROCESSING_CODE and PROCESSING_TYPE agree 1:1 across all 2296 rows: 0/Purchase (2112), 1/ATM Cash Withdrawal (71), 20/Purchase Return/Refund (113). A file from a different network may map the same codes differently, so this belongs here in a rule file rather than in code.",
+  "codes": {
+    "00": "Purchase",
+    "01": "ATM Cash Withdrawal",
+    "20": "Purchase Return/Refund"
+  }
+}

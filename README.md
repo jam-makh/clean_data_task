@@ -41,33 +41,47 @@ python -m pip install -e ".[dev]"
 Run the pipeline against the bundled source file.
 
 ```bash
-clean-transactions
-```
-
-Run the read-only profiler to inspect a file before cleaning it.
-
-```bash
-python -m cleaning_task.profiling.profiler
+make run
 ```
 
 Run the test suite.
 
 ```bash
-python -m pytest -q
+make test
 ```
 
-PowerShell equivalents, if the console script is not on `PATH`:
+Run the read-only profiler to inspect a file before cleaning it.
+
+```bash
+python -m eda.profiler
+```
+
+Both `make` targets are one-line wrappers, so the direct equivalents work
+identically on any shell -- including PowerShell, where `&&` is a parse error
+and each command must go on its own line:
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -c "from cleaning_task.main import main; main()"
+python main.py
 python -m pytest -q
 ```
 
-Use it from anywhere as a library.
+Use it from anywhere as a library. `cleaning_task` is the library half -- the
+steps, the orchestrator and the report; `main.py` at the repo root is the entry
+point that composes them.
 
 ```python
-from cleaning_task import clean_transactions
+from cleaning_task import TransactionCleaner
+
+cleaner = TransactionCleaner(mcc_reference=reference)
+cleaned = cleaner.run(raw)
+print(cleaner.report)
+```
+
+From the repo root, the one-call form is also available:
+
+```python
+from main import clean_transactions
 
 cleaned, report = clean_transactions(
     "data/raw/synthetic_dirty_transactions_v4.xlsx",
@@ -167,6 +181,8 @@ Step order follows real dependencies, not preference: `DateNormalizer` precedes 
 | `cleaning_report` | 58 | Every metric the run recorded. |
 
 The last three sheets **mirror** rows rather than moving them, because removing real transactions to isolate a date problem would corrupt every total computed from the main table.
+
+Column names are **lowercase** throughout, because an unquoted identifier folds to lowercase in Postgres and DuckDB anyway, so these names survive a load without quoting. Every cleaned column keeps a `_cleaned` suffix — `txn_amount_cleaned` is the parsed float, `txn_amount` on `raw_transactions` is the text the source held. `matches_status` is the one exception: it is not a repair of the incoming status but a fresh verdict, recomputed against the current merchant master, so the suffix would claim a provenance it does not have.
 
 ---
 
@@ -331,5 +347,4 @@ python -m pytest -q
 
 | Document | Contents |
 |---|---|
-| `PLAN.md` | Full architecture, EDA findings, phased plan, and the reasoning behind each decision. |
-| `SETTLE_DATE_IMPUTATION.md` | Standalone decision memo on whether missing settlement dates should be imputed. |
+| `ARCHITECTURE.md` | Stage-by-stage walkthrough: what each cleaner receives, the steps it runs, what it emits, and the hard case it exists to handle. |

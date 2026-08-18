@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from cleaning_task.cleaners.dates import DateNormalizer
+from src.cleaners.dates import DateNormalizer
 
 
 @pytest.mark.parametrize(
@@ -23,34 +23,44 @@ from cleaning_task.cleaners.dates import DateNormalizer
 )
 def test_each_format_parses(raw, expected, report):
     df = DateNormalizer(report).apply(pd.DataFrame({"TXN_DATE_TIME": [raw]}))
-    assert df["TXN_DATE_TIME_CLEAN"].iat[0] == pd.Timestamp(expected)
+    assert df["TXN_DATE_TIME_CLEANED"].iat[0] == pd.Timestamp(expected)
 
 
 def test_slash_and_dash_disagree_on_the_same_digits(report):
-    """09/07 is 9 July; 09-07 is 7 September. The separator is the only signal."""
+    """
+    09/07 is 9 July; 09-07 is 7 September. The separator is the only signal.
+    """
     df = DateNormalizer(report).apply(
-        pd.DataFrame({"TXN_DATE_TIME": ["09/07/2022 10:00", "09-07-2022 10:00"]})
+        pd.DataFrame(
+            {"TXN_DATE_TIME": ["09/07/2022 10:00", "09-07-2022 10:00"]}
+        )
     )
-    assert df["TXN_DATE_TIME_CLEAN"].iat[0] == pd.Timestamp("2022-07-09 10:00")
-    assert df["TXN_DATE_TIME_CLEAN"].iat[1] == pd.Timestamp("2022-09-07 10:00")
+    parsed = df["TXN_DATE_TIME_CLEANED"]
+    assert parsed.iat[0] == pd.Timestamp("2022-07-09 10:00")
+    assert parsed.iat[1] == pd.Timestamp("2022-09-07 10:00")
 
 
 @pytest.mark.parametrize("token", ["", "0000-00-00", "1970-01-01"])
 def test_date_shaped_nulls_become_nat(token, report):
     """0000-00-00 and epoch zero are nulls wearing a date costume."""
     df = DateNormalizer(report).apply(pd.DataFrame({"SETTLE_DATE": [token]}))
-    assert pd.isna(df["SETTLE_DATE_CLEAN"].iat[0])
+    assert pd.isna(df["SETTLE_DATE_CLEANED"].iat[0])
 
 
 def test_unrecognised_format_is_nat_not_a_guess(report):
     """An unparsed date is a bug signal and must never be silently invented."""
-    df = DateNormalizer(report).apply(pd.DataFrame({"TXN_DATE_TIME": ["March 3rd 2022"]}))
-    assert pd.isna(df["TXN_DATE_TIME_CLEAN"].iat[0])
+    df = DateNormalizer(report).apply(
+        pd.DataFrame({"TXN_DATE_TIME": ["March 3rd 2022"]})
+    )
+    assert pd.isna(df["TXN_DATE_TIME_CLEANED"].iat[0])
     assert ("dates", "TXN_DATE_TIME.unparseable", 1) in report.entries
 
 
 def test_source_file_parses_completely(transactions, report):
-    """Every date in the real file must parse; a regression here is a new format."""
+    """
+    Every date in the real file must parse; a regression here is a new
+    format.
+    """
     df = DateNormalizer(report).apply(transactions)
-    assert df["TXN_DATE_TIME_CLEAN"].isna().sum() == 0
-    assert df["SETTLE_DATE_CLEAN"].isna().sum() == 14
+    assert df["TXN_DATE_TIME_CLEANED"].isna().sum() == 0
+    assert df["SETTLE_DATE_CLEANED"].isna().sum() == 14

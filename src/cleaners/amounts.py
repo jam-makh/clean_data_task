@@ -4,9 +4,9 @@ import re
 
 import pandas as pd
 
-from cleaning_task.cleaners.base import BaseCleaner
+from src.cleaners.base import BaseCleaner
 
-AMOUNT_COLUMNS = {"TXN_AMOUNT": "TXN_AMOUNT_CLEAN"}
+AMOUNT_COLUMNS = {"TXN_AMOUNT": "TXN_AMOUNT_CLEANED"}
 
 # Currencies with no minor unit in practice, where a trailing ",000" group can
 # only be a thousands separator.
@@ -28,13 +28,18 @@ class AmountNormalizer(BaseCleaner):
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        ccy = df["TXN_CCY"] if "TXN_CCY" in df.columns else pd.Series([""] * len(df))
+        ccy = (
+            df["TXN_CCY"]
+            if "TXN_CCY" in df.columns
+            else pd.Series([""] * len(df))
+        )
 
         for source, target in AMOUNT_COLUMNS.items():
             if source not in df.columns:
                 continue
             values = [
-                self.parse(raw, self.text(c)) for raw, c in zip(df[source], ccy)
+                self.parse(raw, self.text(c))
+                for raw, c in zip(df[source], ccy)
             ]
             df[target] = pd.to_numeric(pd.Series(values, index=df.index))
 
@@ -44,7 +49,9 @@ class AmountNormalizer(BaseCleaner):
                 sum(
                     1
                     for raw in df[source]
-                    if pd.to_numeric(pd.Series([raw]), errors="coerce").isna().iat[0]
+                    if pd.to_numeric(
+                        pd.Series([raw]), errors="coerce"
+                    ).isna().iat[0]
                     and self.text(raw) != ""
                 )
             )

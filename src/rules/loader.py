@@ -60,7 +60,10 @@ def city_countries() -> dict[str, str]:
 
 
 def mcc_rules() -> dict:
-    """:returns: Catch-all code, suspect codes, deterministic rules, thresholds."""
+    """
+    :returns: Catch-all code, suspect codes, deterministic rules,
+        thresholds.
+    """
     return load("mcc_rules")
 
 
@@ -85,7 +88,8 @@ def merchant_aliases() -> dict[str, str]:
         for alias in entry.get("aliases", []):
             if alias in flat and flat[alias] != canonical:
                 raise ValueError(
-                    f"alias {alias!r} claimed by {flat[alias]!r} and {canonical!r}"
+                    f"alias {alias!r} claimed by "
+                    f"{flat[alias]!r} and {canonical!r}"
                 )
             flat[alias] = canonical
     return flat

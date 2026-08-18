@@ -12,9 +12,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
-[project.scripts]
-clean-transactions = "cleaning_task.main:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -26,5 +23,5 @@ packages = ["src/cleaning_task"]
 "src/cleaning_task/rules/json" = "cleaning_task/rules/json"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]

@@ -3,11 +3,10 @@
 import pandas as pd
 import pytest
 
-from cleaning_task.cleaners.geo import CityNormalizer
-from cleaning_task.cleaners.missing import MissingValueHandler
-from cleaning_task.rules import loader
-from cleaning_task.utils.report import CleaningReport
-from cleaning_task.validators.consistency import ConsistencyValidator
+from src.cleaners.geo import CityNormalizer
+from src.rules import loader
+from src.utils.report import CleaningReport
+from src.validators.consistency import ConsistencyValidator
 
 ALIASES, ECOMMERCE = loader.city_aliases()
 
@@ -64,7 +63,9 @@ def test_ecommerce_marker_implies_no_country():
 def test_mismatched_country_is_flagged():
     out = normalise([("PARIS", "GB"), ("PARIS", "FR")])
     flagged = ConsistencyValidator(CleaningReport()).apply(out)
-    assert list(flagged["VALIDATION_FLAGS"].str.contains("GEO_CITY_COUNTRY_MISMATCH")) == [
+    assert list(
+        flagged["VALIDATION_FLAGS"].str.contains("GEO_CITY_COUNTRY_MISMATCH")
+    ) == [
         True,
         False,
     ]
@@ -97,16 +98,21 @@ def test_every_reference_city_is_a_canonical_name():
     assert not stale, f"reference keyed on non-canonical cities: {stale}"
 
 
-def test_mismatch_is_confined_to_the_country_column(transactions, mcc_reference):
+def test_mismatch_is_confined_to_the_country_column(
+    transactions,
+    mcc_reference,
+):
     """
     The corruption is one-sided: on every flagged row the city is right and
     the country is wrong. If a future file breaks that, the fix is a different
     one and this test should fail rather than quietly mislead.
     """
-    from cleaning_task.main import clean_transactions
+    from main import clean_transactions
 
     cleaned, _ = clean_transactions(transactions, mcc_reference=mcc_reference)
-    bad = cleaned[cleaned["VALIDATION_FLAGS"].str.contains("GEO_CITY_COUNTRY_MISMATCH")]
+    bad = cleaned[
+        cleaned["VALIDATION_FLAGS"].str.contains("GEO_CITY_COUNTRY_MISMATCH")
+    ]
     assert len(bad) == 148
     # Four injected values account for all of it, so this is noise in one
     # column rather than genuine geography we failed to model.

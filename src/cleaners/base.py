@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from cleaning_task.utils.report import CleaningReport
+from src.utils.report import CleaningReport
 
 
 class BaseCleaner(ABC):

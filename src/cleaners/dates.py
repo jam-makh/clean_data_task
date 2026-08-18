@@ -5,12 +5,12 @@ from datetime import datetime
 
 import pandas as pd
 
-from cleaning_task.cleaners.base import BaseCleaner
-from cleaning_task.rules import loader
+from src.cleaners.base import BaseCleaner
+from src.rules import loader
 
 DATE_COLUMNS = {
-    "TXN_DATE_TIME": "TXN_DATE_TIME_CLEAN",
-    "SETTLE_DATE": "SETTLE_DATE_CLEAN",
+    "TXN_DATE_TIME": "TXN_DATE_TIME_CLEANED",
+    "SETTLE_DATE": "SETTLE_DATE_CLEANED",
 }
 
 
@@ -28,7 +28,10 @@ class DateNormalizer(BaseCleaner):
 
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         formats, null_tokens = loader.date_formats()
-        compiled = [(re.compile(f["regex"]), f["strptime"], f["name"]) for f in formats]
+        compiled = [
+            (re.compile(f["regex"]), f["strptime"], f["name"])
+            for f in formats
+        ]
         df = df.copy()
 
         for source, target in DATE_COLUMNS.items():
@@ -41,7 +44,9 @@ class DateNormalizer(BaseCleaner):
             df[target] = pd.to_datetime(parsed)
 
             nulls = int(df[target].isna().sum())
-            blanks = int(df[source].map(lambda v: self.text(v) in null_tokens).sum())
+            blanks = int(
+                df[source].map(lambda v: self.text(v) in null_tokens).sum()
+            )
             self.log(f"{source}.unparseable", nulls - blanks)
             self.log(f"{source}.missing_or_placeholder", blanks)
             for fmt, count in sorted(matched.items(), key=lambda kv: -kv[1]):
@@ -67,7 +72,9 @@ class DateNormalizer(BaseCleaner):
                 continue
             try:
                 if fmt == "EPOCH_MS":
-                    result = pd.to_datetime(int(text), unit="ms").to_pydatetime()
+                    result = pd.to_datetime(
+                        int(text), unit="ms"
+                    ).to_pydatetime()
                 else:
                     result = datetime.strptime(text, fmt)
             except (ValueError, OverflowError):

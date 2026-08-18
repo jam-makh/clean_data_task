@@ -8,7 +8,9 @@ DATETIME_DISPLAY = "%d-%m-%Y %H:%M:%S"
 DATE_DISPLAY = "%d-%m-%Y"
 
 # Columns rendered as dates only; everything else datetime keeps its time part.
-DATE_ONLY = {"SETTLE_DATE_CLEAN"}
+# Matched case-insensitively: a sheet goes out under lowercase names, while a
+# frame handed straight to write_workbook still carries the pipeline's own.
+DATE_ONLY = {"settle_date_cleaned"}
 
 
 def read_workbook(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
@@ -23,7 +25,11 @@ def read_workbook(path: str | Path) -> tuple[pd.DataFrame, dict[str, str]]:
     :returns: (transactions frame, MCC code to category).
     """
     book = pd.ExcelFile(path)
-    txn_sheet = "Transactions" if "Transactions" in book.sheet_names else book.sheet_names[0]
+    txn_sheet = (
+        "Transactions"
+        if "Transactions" in book.sheet_names
+        else book.sheet_names[0]
+    )
     transactions = book.parse(txn_sheet, dtype=object, keep_default_na=False)
 
     reference: dict[str, str] = {}
@@ -55,6 +61,10 @@ def write_workbook(path: str | Path, sheets: dict[str, pd.DataFrame]) -> None:
             formatted = frame.copy()
             for column in formatted.columns:
                 if pd.api.types.is_datetime64_any_dtype(formatted[column]):
-                    fmt = DATE_DISPLAY if column in DATE_ONLY else DATETIME_DISPLAY
+                    fmt = (
+                        DATE_DISPLAY
+                        if str(column).lower() in DATE_ONLY
+                        else DATETIME_DISPLAY
+                    )
                     formatted[column] = formatted[column].dt.strftime(fmt)
             formatted.to_excel(writer, sheet_name=name[:31], index=False)

@@ -1,8 +1,0 @@
-{
-  "_comment": "ISO 8583 field 3 transaction-type pair. The full field is 6 digits (type, from-account, to-account); this source carries only the leading pair, hence CODE_WIDTH=2 in codes.py.",
-  "codes": {
-    "00": "Purchase",
-    "01": "ATM Cash Withdrawal",
-    "20": "Purchase Return/Refund"
-  }
-}

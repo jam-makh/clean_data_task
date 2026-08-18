@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from cleaning_task.cleaners import (
+from src.cleaners import (
     AmountNormalizer,
     CityNormalizer,
     CodeNormalizer,
@@ -11,8 +11,8 @@ from cleaning_task.cleaners import (
     MerchantCleaner,
     MissingValueHandler,
 )
-from cleaning_task.utils.report import CleaningReport
-from cleaning_task.validators import ConsistencyValidator, MccValidator
+from src.utils.report import CleaningReport
+from src.validators import ConsistencyValidator, MccValidator
 
 # Order is dictated by real dependencies, not preference. Dates precede
 # DuplicateCleaner's ID sequencing because that orders by date, and sorting
@@ -42,7 +42,12 @@ class TransactionCleaner:
     :param mcc_reference: MCC code to category, from the workbook.
     """
 
-    def __init__(self, steps: list[type] | None = None, mcc_reference: dict | None = None, **config):
+    def __init__(
+        self,
+        steps: list[type] | None = None,
+        mcc_reference: dict | None = None,
+        **config,
+    ):
         self.steps = steps if steps is not None else list(DEFAULT_STEPS)
         self.mcc_reference = mcc_reference or {}
         self.config = config

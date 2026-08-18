@@ -2,8 +2,8 @@
 
 import pandas as pd
 
-from cleaning_task.cleaners.dates import DateNormalizer
-from cleaning_task.cleaners.missing import MissingValueHandler
+from src.cleaners.dates import DateNormalizer
+from src.cleaners.missing import MissingValueHandler
 
 
 def test_terminal_sentinel_is_flagged_not_erased(report):
@@ -15,7 +15,10 @@ def test_terminal_sentinel_is_flagged_not_erased(report):
 
 
 def test_auth_code_repeats_are_invalid(report):
-    """Genuine 6-char codes collide with probability ~0.001, so any repeat is planted."""
+    """
+    Genuine 6-char codes collide with probability ~0.001, so any repeat is
+    planted.
+    """
     df = MissingValueHandler(report).apply(
         pd.DataFrame({"AUTH_CODE": ["ZZ0011", "ZZ0011", "UNIQ01", "000000"]})
     )
@@ -26,20 +29,27 @@ def test_settle_status_uses_a_column_not_a_placeholder_string(report):
     """A literal "unknown" in a date column would force it to text."""
     frame = pd.DataFrame(
         {
-            "TXN_DATE_TIME": ["2022-03-10 00:00:00", "2022-03-10 00:00:00", "2022-03-10 00:00:00"],
+            "TXN_DATE_TIME": [
+                "2022-03-10 00:00:00", "2022-03-10 00:00:00",
+                "2022-03-10 00:00:00",
+            ],
             "SETTLE_DATE": ["2022-03-12", "0000-00-00", "2022-03-09"],
         }
     )
     dated = DateNormalizer(report).apply(frame)
     df = MissingValueHandler(report).apply(dated)
 
-    assert list(df["SETTLE_DATE_STATUS"]) == ["OBSERVED", "UNKNOWN", "ANOMALOUS"]
-    assert pd.isna(df["SETTLE_DATE_CLEAN"].iat[1])
-    assert pd.api.types.is_datetime64_any_dtype(df["SETTLE_DATE_CLEAN"])
+    assert list(df["SETTLE_DATE_STATUS"]) == [
+        "OBSERVED", "UNKNOWN", "ANOMALOUS",
+    ]
+    assert pd.isna(df["SETTLE_DATE_CLEANED"].iat[1])
+    assert pd.api.types.is_datetime64_any_dtype(df["SETTLE_DATE_CLEANED"])
 
 
 def test_real_file_counts(transactions, report):
-    df = MissingValueHandler(report).apply(DateNormalizer(report).apply(transactions))
+    df = MissingValueHandler(report).apply(
+        DateNormalizer(report).apply(transactions)
+    )
     status = df["SETTLE_DATE_STATUS"].astype(str)
     assert (status == "UNKNOWN").sum() == 14
     assert (status == "ANOMALOUS").sum() == 6

@@ -2,9 +2,9 @@
 
 import pytest
 
-from cleaning_task.cleaners.merchant import MerchantCleaner
-from cleaning_task.rules import loader
-from cleaning_task.utils.report import CleaningReport
+from src.cleaners.merchant import MerchantCleaner
+from src.rules import loader
+from src.utils.report import CleaningReport
 
 PROCESSORS = loader.processors()
 
@@ -24,7 +24,9 @@ def clean(name):
     ],
 )
 def test_processor_prefix_is_stripped(raw, expected):
-    """Merchant is on the right only when the left token is a known processor."""
+    """
+    Merchant is on the right only when the left token is a known processor.
+    """
     assert clean(raw)[0] == expected
 
 
@@ -105,7 +107,7 @@ def test_blank_input_survives():
 def test_nothing_becomes_empty_on_the_real_file(transactions, report):
     """Cleaning must never erase a merchant entirely."""
     df = MerchantCleaner(report).apply(transactions)
-    assert (df["MERCHANT_NAME_CLEAN"] == "").sum() == 0
+    assert (df["MERCHANT_NAME_CLEANED"] == "").sum() == 0
 
 
 # --- the merchant master and its review queue ------------------------------
@@ -118,20 +120,25 @@ def test_aliases_collapse_to_one_canonical_merchant(transactions):
     cleaner = MerchantCleaner(CleaningReport())
     out = cleaner.apply(transactions)
     aws = out[out["MERCHANT_NAME"].astype(str).str.upper().str.contains("AWS")]
-    assert set(aws["MERCHANT_NAME_CLEAN"]) == {"AWS CLOUD SERVICES"}
+    assert set(aws["MERCHANT_NAME_CLEANED"]) == {"AWS CLOUD SERVICES"}
     assert aws["MERCHANT_RECOGNISED"].all()
 
 
 def test_aws_stays_separate_from_amazon(transactions):
-    """Same parent, different business -- merging them would erase the MCC signal."""
+    """
+    Same parent, different business -- merging them would erase the MCC
+    signal.
+    """
     cleaner = MerchantCleaner(CleaningReport())
     out = cleaner.apply(transactions)
-    names = set(out["MERCHANT_NAME_CLEAN"])
+    names = set(out["MERCHANT_NAME_CLEANED"])
     assert {"AWS CLOUD SERVICES", "AMAZON MARKETPLACE"} <= names
 
 
 def test_unrecognised_merchant_is_flagged_and_queued(transactions):
-    """A name absent from the master is never guessed at -- it goes to review."""
+    """
+    A name absent from the master is never guessed at -- it goes to review.
+    """
     probe = transactions.head(5).copy()
     probe.loc[probe.index[:2], "MERCHANT_NAME"] = "SQ *ZOOMBA FITNESS BEIRUT"
 
@@ -139,10 +146,10 @@ def test_unrecognised_merchant_is_flagged_and_queued(transactions):
     out = cleaner.apply(probe)
 
     unknown = out[~out["MERCHANT_RECOGNISED"]]
-    assert set(unknown["MERCHANT_NAME_CLEAN"]) == {"ZOOMBA FITNESS BEIRUT"}
+    assert set(unknown["MERCHANT_NAME_CLEANED"]) == {"ZOOMBA FITNESS BEIRUT"}
 
     queue = cleaner.review_queue()
-    assert list(queue["MERCHANT_NAME_CLEAN"]) == ["ZOOMBA FITNESS BEIRUT"]
+    assert list(queue["MERCHANT_NAME_CLEANED"]) == ["ZOOMBA FITNESS BEIRUT"]
     assert queue["ROW_COUNT"].iat[0] == 2
     # The raw spelling is what a reviewer needs to recognise the merchant.
     assert "SQ *ZOOMBA FITNESS BEIRUT" in queue["RAW_SPELLINGS"].iat[0]
@@ -155,5 +162,7 @@ def test_every_observed_name_is_recognised(transactions):
     """
     cleaner = MerchantCleaner(CleaningReport())
     out = cleaner.apply(transactions)
-    missing = sorted(set(out.loc[~out["MERCHANT_RECOGNISED"], "MERCHANT_NAME_CLEAN"]))
+    missing = sorted(
+        set(out.loc[~out["MERCHANT_RECOGNISED"], "MERCHANT_NAME_CLEANED"])
+    )
     assert not missing, missing
