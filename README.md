@@ -4,7 +4,7 @@
 
 A class-based cleaning pipeline for a 2,296-row card transactions workbook, exposing one importable function and emitting a multi-sheet workbook that behaves like a small database.
 
-This file covers what the pipeline is, how to run it, and what it produced. Every *why* — the reasoning behind each cleaning decision — lives in [`ARCHITECTURE.md`](ARCHITECTURE.md), one section per stage.
+This file covers what the pipeline is, how to run it, and what it produced. Every *why* - the reasoning behind each cleaning decision - lives in [`ARCHITECTURE.md`](ARCHITECTURE.md), one section per stage.
 
 ---
 
