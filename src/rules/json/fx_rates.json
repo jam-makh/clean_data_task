@@ -1,0 +1,24 @@
+{
+  "_comment": "Reference exchange rates, expressed the way a person states one: how many units of the currency buy one US dollar. Every BILLING_CURRENCY in this file is USD, so one column per currency is enough. These exist because FX_RATE is stored per row and drifts: EUR ranges 1.0631-1.1098 across the file, GBP 1.2393-1.2907, which is ordinary daily movement over the Mar-Sep 2022 window the data covers. That drift is real and is why the reference is NOT used to recompute BILLING_AMOUNT -- one fixed rate applied to seven months of trading would contradict 820 rows that are perfectly correct. It is used only to ask whether a row's own rate is plausible for its currency at all. Pegged currencies carry their official peg; floating ones carry the median observed in this file, which is a period average and nothing more authoritative than that. LBP is the currency this check exists for: 100 rows still state the 1507.5 official peg abandoned in practice years earlier, while the rest range from 26000 to 38000. No single number describes LBP over these seven months, which is itself the finding -- see the tolerance note in consistency.py.",
+  "_lbp_note": "89500 is the rate unified by Banque du Liban in February 2024. The transactions here are dated March to September 2022, when the parallel market ran roughly 25000-38000, so this reference flags all 481 LBP rows rather than only the 100 stale-peg ones. Change this single number to 27069 to flag 303 instead -- the period median from the file's own rates.",
+  "units_per_usd": {
+    "AED": 3.6725,
+    "AUD": 1.3821,
+    "CAD": 1.2957,
+    "CHF": 0.9637,
+    "EGP": 18.7877,
+    "EUR": 0.9225,
+    "GBP": 0.79,
+    "JOD": 0.709,
+    "JPY": 133.8252,
+    "KWD": 0.3086,
+    "LBP": 89500,
+    "QAR": 3.64,
+    "SAR": 3.75,
+    "SEK": 10.1798,
+    "TRY": 16.8167,
+    "USD": 1.0
+  },
+  "_pegged": ["AED", "JOD", "QAR", "SAR", "USD"],
+  "_floating_median_from_this_file": ["AUD", "CAD", "CHF", "EGP", "EUR", "GBP", "JPY", "KWD", "SEK", "TRY"]
+}

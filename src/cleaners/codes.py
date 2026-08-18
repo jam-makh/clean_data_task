@@ -14,6 +14,12 @@ from src.rules import loader
 PROCESSING_CODE_WIDTH = 2
 MCC_WIDTH = 4
 
+# The one label that means money coming back to the customer; everything else
+# -- purchase, cash withdrawal -- is money going out. It is spelled exactly as
+# processing_codes.json spells it, and lives here, beside the lookup that
+# generates it, so the rule file and the constant stay in one another's sight.
+REFUND_LABEL = "Purchase Return/Refund"
+
 
 class CodeNormalizer(BaseCleaner):
     """

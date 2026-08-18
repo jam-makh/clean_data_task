@@ -3,8 +3,10 @@
 How each cleaning stage works, one stage per section. Every section follows the
 same shape: **input → steps → output → the hard case**.
 
-`README.md` says *what* the pipeline decided. This file says *how* each stage
-reaches that decision.
+[`README.md`](README.md) says what the pipeline is, how to run it and what it
+produced. This file says why each stage decides what it decides. A run's
+outcome — how many rows each rule caught — lives there, not here, so the two
+never drift.
 
 ---
 
@@ -14,15 +16,16 @@ reaches that decision.
 - [Execution order and why](#execution-order-and-why)
 - [Stage 1 — Dates](#stage-1--dates)
 - [Stage 2 — Duplicates](#stage-2--duplicates)
-- [Stage 3 — Amounts](#stage-3--amounts)
-- [Stage 4 — Codes](#stage-4--codes)
+- [Stage 3 — Codes](#stage-3--codes)
+- [Stage 4 — Amounts](#stage-4--amounts)
 - [Stage 5 — Missing values](#stage-5--missing-values)
 - [Stage 6 — Merchants](#stage-6--merchants)
 - [Stage 7 — Cities](#stage-7--cities)
 - [Stage 8 — MCC](#stage-8--mcc)
 - [Stage 9 — Consistency](#stage-9--consistency)
-- [Three rules that apply everywhere](#three-rules-that-apply-everywhere)
+- [Five rules that apply everywhere](#five-rules-that-apply-everywhere)
 - [Adding a stage](#adding-a-stage)
+- [Adding a rule file](#adding-a-rule-file)
 
 ---
 
@@ -56,14 +59,15 @@ Order is set by real data dependencies, not preference.
 
 ```mermaid
 flowchart LR
-    D[1 Dates] --> U[2 Duplicates] --> A[3 Amounts] --> C[4 Codes]
-    C --> M[5 Missing] --> ME[6 Merchants] --> CI[7 Cities]
+    D[1 Dates] --> U[2 Duplicates] --> C[3 Codes] --> A[4 Amounts]
+    A --> M[5 Missing] --> ME[6 Merchants] --> CI[7 Cities]
     CI --> MC[8 MCC] --> CO[9 Consistency]
 ```
 
 | Edge | Reason it cannot be reversed |
 |---|---|
 | Dates → Duplicates | Collisions are ordered by date; sorting mixed-format date *strings* orders garbage |
+| Codes → Amounts | The sign is taken from `PROCESSING_TYPE_CLEANED`, which stage 3 resolves |
 | Codes → Missing | Types must settle first, so "unreadable" is distinguishable from "absent" |
 | Dates → Missing | `SETTLE_DATE_STATUS` needs a parsed date to call it anomalous |
 | Merchants → MCC | MCC layers 3–5 group by the cleaned merchant name |
@@ -113,8 +117,6 @@ Never fall back to a guessing parser. An unparsed date means **a format we do no
 handle yet** — a bug signal. Imputing it hides the bug, and next quarter's file
 silently loses rows to a format nobody noticed.
 
-**Result:** 0 unparseable, 14 placeholders (handled in stage 5).
-
 ---
 
 ## Stage 2 — Duplicates
@@ -142,15 +144,51 @@ Suffixing `TXN_ID` to `"4774694-2"` would flip the column's dtype from int to
 string — **and only on files that happen to contain a collision.** Code that
 works all year breaks in the one quarter that has a duplicate.
 
-**Result:** 0 exact duplicates, 0 ID collisions, 0 business-key repeats. The
-stage is a no-op on this file and exists for the next one.
+This stage is a no-op on the current file and exists for the next one.
 
 ---
 
-## Stage 3 — Amounts
+## Stage 3 — Codes
+
+**In:** `PROCESSING_CODE` (int), `MCC_CODE`
+**Out:** `PROCESSING_CODE_CLEANED`, `PROCESSING_TYPE_CLEANED`, `MCC_CODE_CLEANED`, `MCC_CATEGORY`
+
+### The principle
+
+> A code spelled with digits is not a number. Arithmetic on it is meaningless
+> and its leading zeros carry meaning, so its canonical form is a **string**.
+
+An integer column destroyed the leading zeros. Padding restores them:
+
+| Stored as int | ISO 8583 field 3 | Label | Rows |
+|---|---|---|---|
+| `0` | `00` | Purchase | 2112 |
+| `1` | `01` | ATM Cash Withdrawal | 71 |
+| `20` | `20` | Purchase Return/Refund | 113 |
+
+> The full ISO field is 6 digits (type, from-account, to-account). This export
+> carries only the leading transaction-type pair, hence width 2 and not 6.
+
+### Labels are regenerated, never trusted
+
+```python
+labels = df["PROCESSING_CODE_CLEANED"].map(codes.get)
+```
+
+The incoming `PROCESSING_TYPE` text is not copied — it is **recomputed from the
+code** and the old value compared against it. A future file spelling it `"ATM
+WITHDRAWAL"` still lands on one canonical value, and the disagreement is counted.
+
+> **Honest limit.** `PROCESSING_CODE` is 1:1 with `PROCESSING_TYPE` across all
+> 2296 rows, zero disagreements. It is a join key with nothing to join to and a
+> validation layer that never fires. Kept because a real switch keys on it.
+
+---
+
+## Stage 4 — Amounts
 
 **In:** `TXN_AMOUNT` stored as **text**
-**Out:** `TXN_AMOUNT_CLEANED` as float
+**Out:** `TXN_AMOUNT_CLEANED` as float, signed by transaction type
 
 ### Three conventions in one column
 
@@ -187,47 +225,34 @@ ZERO_DECIMAL = {"LBP", "JPY", "KRW", "VND", "IQD"}
 
 So `5.727.580,00` under LBP is 5,727,580 — not 5.72.
 
-**Result:** 0 unparseable, 15 reformatted.
+### The sign the source dropped
 
----
+Parsing recovers a negative only when the cell carries one to recover — a
+leading `-`, or accounting parentheses. 13 rows carry neither:
 
-## Stage 4 — Codes
+| Stored as | Example | Sign survived? |
+|---|---|---|
+| number | `-104.39` | yes |
+| text, parenthesised | `(808.41)` | yes |
+| **text, bare** | `409.34` | **no — 13 rows** |
 
-**In:** `PROCESSING_CODE` (int), `MCC_CODE`
-**Out:** `PROCESSING_CODE_CLEANED`, `PROCESSING_TYPE_CLEANED`, `MCC_CODE_CLEANED`, `MCC_CATEGORY`
+All 13 are purchases, and every purchase stored as a number in this file is
+negative, so the convention is not in doubt: the sign was lost by whatever
+wrote those cells as strings.
 
-### The principle
-
-> A code spelled with digits is not a number. Arithmetic on it is meaningless
-> and its leading zeros carry meaning, so its canonical form is a **string**.
-
-An integer column destroyed the leading zeros. Padding restores them:
-
-| Stored as int | ISO 8583 field 3 | Label | Rows |
-|---|---|---|---|
-| `0` | `00` | Purchase | 2112 |
-| `1` | `01` | ATM Cash Withdrawal | 71 |
-| `20` | `20` | Purchase Return/Refund | 113 |
-
-> The full ISO field is 6 digits (type, from-account, to-account). This export
-> carries only the leading transaction-type pair, hence width 2 and not 6.
-
-### Labels are regenerated, never trusted
+So the sign is not read from the cell at all. It is taken from the transaction
+type, which states the direction of the money independently of how the amount
+happened to be formatted:
 
 ```python
-labels = df["PROCESSING_CODE_CLEANED"].map(codes.get)
+refund = df["PROCESSING_TYPE_CLEANED"].astype(str) == REFUND_LABEL
+signed = df[target].abs().where(refund, -df[target].abs())
 ```
 
-The incoming `PROCESSING_TYPE` text is not copied — it is **recomputed from the
-code** and the old value compared against it. A future file spelling it `"ATM
-WITHDRAWAL"` still lands on one canonical value, and the disagreement is counted.
-
-**Result:** 0 unknown codes, 0 label disagreements, 41 distinct MCCs all present
-in the reference.
-
-> **Honest limit.** `PROCESSING_CODE` is 1:1 with `PROCESSING_TYPE` across all
-> 2296 rows, zero disagreements. It is a join key with nothing to join to and a
-> validation layer that never fires. Kept because a real switch keys on it.
+Only the sign moves; the digits are what the source got right. Corrected rows
+are counted as `TXN_AMOUNT_CLEANED.sign_restored` **and** flagged
+`AMOUNT_SIGN_RESTORED` per row, because the value now differs from the one in
+`raw_transactions` and that has to be traceable to the transaction.
 
 ---
 
@@ -389,9 +414,9 @@ one entry per merchant:
 }
 ```
 
-**586 spellings → 270 merchants.** An unrecognised name is never guessed: it
-keeps its cleaned form, `MERCHANT_RECOGNISED` goes false, and it enters
-`merchant_review` with its raw spellings, countries and observed MCCs.
+An unrecognised name is never guessed: it keeps its cleaned form,
+`MERCHANT_RECOGNISED` goes false, and it enters `merchant_review` with its raw
+spellings, countries and observed MCCs.
 
 ### The hard case: similarity is a hint, never the decision
 
@@ -645,17 +670,83 @@ master is authoritative and needs no guessing.
 The dataset states some facts more than once. Redundancy becomes the validation
 layer rather than something to collapse.
 
-| Flag | Rule | Hits |
-|---|---|---|
-| `REQUIRED_NULL[…]` | 5 columns that make a row unusable if null | 0 |
-| `SETTLE_BEFORE_TXN` | `SETTLE_DATE < TXN_DATE` | 6 |
-| `GEO_CITY_COUNTRY_MISMATCH` | city implies a different country | 148 |
-| `REFUND_NEGATIVE` | refund with a negative billing amount | 0 |
-| `PURCHASE_POSITIVE` | purchase with a positive billing amount | 0 |
-| `CODE_TYPE_MISMATCH` | label disagrees with its code | 0 |
-| `MCC_ATM_MISMATCH` | raised in stage 8 | 6 |
+| Flag | Rule |
+|---|---|
+| `REQUIRED_NULL[…]` | 5 columns that make a row unusable if null |
+| `SETTLE_BEFORE_TXN` | `SETTLE_DATE < TXN_DATE` |
+| `GEO_CITY_COUNTRY_MISMATCH` | city implies a different country |
+| `REFUND_NEGATIVE` | refund with a negative billing amount |
+| `PURCHASE_POSITIVE` | purchase with a positive billing amount |
+| `FX_RECONCILE_MISMATCH` | the two amounts do not reconcile at the stated rate |
+| `FX_RATE_OFF_REFERENCE` | the stated rate is not plausible for its currency |
+| `CODE_TYPE_MISMATCH` | label disagrees with its code |
+| `MCC_ATM_MISMATCH` | raised in stage 8 |
+| `AMOUNT_SIGN_RESTORED` | raised in stage 4 |
 
-**157 rows carry at least one flag.**
+How many rows each one caught on the current file is in
+[README](README.md#results-on-the-source-file), which is where a run's outcome
+is recorded. Repeating it here would mean two copies drifting apart.
+
+### The amount is stated twice
+
+`TXN_AMOUNT` in local currency and `BILLING_AMOUNT` in USD, with `FX_RATE`
+between them, so the two have to reconcile:
+
+```python
+expected = df["TXN_AMOUNT_CLEANED"].abs() * rate
+drift = (expected - billed.abs()).abs() / expected
+```
+
+Magnitudes, not signed values: the local amount is signed by transaction type
+and the billing amount by its own convention, so comparing them signed would
+flag every refund. The direction is what the sign checks above are for.
+
+The rate multiplies rather than divides. That is worth stating because the
+wrong direction hides in plain sight — on the 1090 USD rows the rate is 1 and
+both directions agree. Across the file, multiplying reconciles 2244 of 2296
+rows; dividing reconciles only those 1090.
+
+`FX_TOLERANCE` is relative, at 1%. `FX_RATE` is stored to six decimals, so a
+large transaction reconciles to within a rounding error rather than exactly,
+and a fixed tolerance would flag every large row or miss every small one across
+the four orders of magnitude this file spans.
+
+**48 rows do not reconcile**, and none of them are among the 13 signed rows —
+these are a separate defect. 23 have a billing amount exactly 1/100 of what the
+rate implies; the rest are off by 5–35%, consistent with a stale rate.
+
+### A row can be perfectly consistent and still wrong
+
+Reconciliation only proves a row agrees with itself. A transaction that states
+a dead exchange rate **and** a billing amount computed from that dead rate
+reconciles exactly, and is wrong by a factor of twenty. Nothing inside the row
+can reveal that, so the check needs an outside reference — `fx_rates.json`,
+one rate per currency, expressed as units per USD.
+
+The reference is deliberately **not** used to recompute `BILLING_AMOUNT`. The
+file covers March–September 2022 and rates move over seven months: EUR ranges
+1.0631–1.1098, GBP 1.2393–1.2907. Applying one fixed rate across that window
+flags 820 rows at 1% tolerance and 393 even at 10%, nearly all of them
+perfectly correct transactions priced on a different day. So the reference
+answers only the narrow question it can answer: *is this row's own rate
+plausible for this currency at all?*
+
+`FX_REFERENCE_TOLERANCE` is 15% for the same reason — wide enough that
+ordinary movement never trips it. Every floating currency in the file stays
+within 4.3% of its own median, so the check is silent on fifteen of the
+sixteen currencies.
+
+**It fires on 481 rows, all of them LBP.** 100 of those still state the
+1507.5 official peg, abandoned in practice years before these transactions;
+the rest range from 26,000 to 38,000 to the dollar. The reference is set at
+89,500, so every LBP row is flagged rather than only the stale-peg ones — see
+`_lbp_note` in the rule file, which is one number away from the alternative.
+
+> **Why this one is flagged and not repaired.** Three values and one equation:
+> the amount, the rate, or the billing figure could each be the wrong one, and
+> the arithmetic cannot say which. Repairing would mean inventing a number.
+> Stage 4's sign restoration is repaired precisely because it does not have
+> this problem — the transaction type says unambiguously which value is wrong.
 
 ### Flags accumulate, they do not overwrite
 
@@ -686,18 +777,23 @@ transactions to fix one descriptive field would destroy more than it repairs.
 
 ---
 
-## Three rules that apply everywhere
+## Five rules that apply everywhere
 
 ### 1. Never overwrite a source column
 
-Every stage adds `*_CLEAN` beside the original. Applied without exception:
+Every stage adds a `*_CLEANED` column beside the original rather than writing
+over it. Applied without exception:
 
 | Field | Original | Derived |
 |---|---|---|
 | Amount | `TXN_AMOUNT` (text) | `TXN_AMOUNT_CLEANED` (float) |
-| MCC | `MCC_CODE` | `MCC_CODE_SUGGESTED` + `MCC_CONFIDENCE` |
-| Country | `MERCHANT_COUNTRY` | `MERCHANT_COUNTRY_EXPECTED` |
+| MCC | `MCC_CODE` | `MCC_CODE_CLEANED` + `MCC_CONFIDENCE` |
+| Country | `MERCHANT_COUNTRY` | `MERCHANT_COUNTRY_CLEANED` |
 | Settlement | `SETTLE_DATE` | `SETTLE_DATE_CLEANED` + `SETTLE_DATE_STATUS` |
+
+The suffix comes off on the way out — sheets are written lowercase and
+unsuffixed — but it exists inside the pipeline so both versions can sit side by
+side while a stage decides.
 
 `raw_transactions` ships all 19 source columns byte-for-byte, joinable on
 `TXN_ID`, so the workbook is self-auditing. The cleaned sheets then show **only**
@@ -711,6 +807,7 @@ computed from the wrong column.
 | `processors.json` | processor prefixes |
 | `date_formats.json` | format patterns + null tokens |
 | `processing_codes.json` | ISO codes → labels |
+| `fx_rates.json` | Currency → units per USD |
 | `city_aliases.json` | city spellings + e-commerce markers |
 | `city_countries.json` | 105 city → country |
 | `mcc_rules.json` | catch-all, suspect codes, thresholds |
@@ -731,6 +828,27 @@ calculation silently breaks.
 
 ---
 
+### 4. A value is repaired in place only when the data says which column is wrong
+
+Two things meet that bar. An MCC the merchant's own transaction history
+contradicts, and the sign a purchase lost when its amount was written as text:
+in both, a second field settles which value is the wrong one.
+
+Everything else is flagged and left alone. Where the amount and the billing
+amount fail to reconcile, any of the three values involved could be the liar
+and the arithmetic cannot say which, so the pipeline says so and stops. The
+distinction is not caution for its own sake — it is whether the data contains
+the answer.
+
+### 5. Every step writes to one shared report
+
+`CleaningReport` is passed to every stage and accumulates across the run.
+Without it, a step that quietly nulls 400 rows is indistinguishable from one
+that changed nothing. It is also the only place a run's outcome is recorded,
+which is what lets this document stay free of counts.
+
+---
+
 ## Adding a stage
 
 1. Subclass `BaseCleaner`, implement `apply`, set `name`.
@@ -741,6 +859,16 @@ calculation silently breaks.
 5. Add derived columns to `PRESENTATION_ORDER` in `utils/columns.py`.
 
 The orchestrator needs no edit — it holds steps in a list and runs them.
+
+## Adding a rule file
+
+1. Put the JSON in `src/rules/json/`, with a `_comment` recording where the
+   values came from and what would make them wrong.
+2. Add a loader function in `rules/loader.py` returning the shape the caller
+   actually needs, not the shape the file happens to have — `city_aliases`
+   inverts canonical→variants into variant→canonical for exactly this reason.
+3. Add a staleness test. A rule file that has quietly stopped matching
+   anything is the failure mode that never announces itself.
 
 ### What a test should assert
 

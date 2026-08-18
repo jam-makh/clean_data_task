@@ -16,13 +16,15 @@ from src.validators import ConsistencyValidator, MccValidator
 
 # Order is dictated by real dependencies, not preference. Dates precede
 # DuplicateCleaner's ID sequencing because that orders by date, and sorting
-# mixed-format date strings orders garbage. MccValidator follows
-# MerchantCleaner because it groups by the cleaned merchant name.
+# mixed-format date strings orders garbage. AmountNormalizer follows
+# CodeNormalizer because it signs each amount by the transaction type that
+# step resolves. MccValidator follows MerchantCleaner because it groups by the
+# cleaned merchant name.
 DEFAULT_STEPS = [
     DateNormalizer,
     DuplicateCleaner,
-    AmountNormalizer,
     CodeNormalizer,
+    AmountNormalizer,
     MissingValueHandler,
     MerchantCleaner,
     CityNormalizer,

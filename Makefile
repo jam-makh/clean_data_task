@@ -1,5 +1,8 @@
 # Variables
-PYTHON := python
+# Overridable, so a specific interpreter can be used without editing this file:
+# `make test PYTHON=.venv/Scripts/python.exe`. Plain `python` when the virtual
+# environment is already activated.
+PYTHON ?= python
 
 # Recipes below never chain with `&&`. Make runs each recipe line in its own
 # shell, and on Windows that shell may be cmd.exe or PowerShell, neither of

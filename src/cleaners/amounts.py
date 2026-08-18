@@ -5,8 +5,12 @@ import re
 import pandas as pd
 
 from src.cleaners.base import BaseCleaner
+from src.cleaners.codes import REFUND_LABEL
 
 AMOUNT_COLUMNS = {"TXN_AMOUNT": "TXN_AMOUNT_CLEANED"}
+
+# The flag raised on a row whose sign had to be restored.
+SIGN_FLAG = "AMOUNT_SIGN_RESTORED"
 
 # Currencies with no minor unit in practice, where a trailing ",000" group can
 # only be a thousands separator.
@@ -22,6 +26,11 @@ class AmountNormalizer(BaseCleaner):
     European decimals ``5.727.580,00``.
 
     Where a single comma is genuinely ambiguous, the currency decides.
+
+    Then it restores the sign, which the source loses on amounts it wrote out
+    as text: 13 rows arrive as a bare ``409.34`` on a purchase, with no minus
+    and no accounting parentheses to read one from. The transaction type says
+    which way the money moved, so the sign is taken from there.
     """
 
     name = "amounts"
@@ -57,6 +66,50 @@ class AmountNormalizer(BaseCleaner):
             )
             self.log(f"{source}.unparseable", failed)
             self.log(f"{source}.reformatted", recovered - failed)
+
+        return self.restore_signs(df)
+
+    def restore_signs(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Signs every amount from its transaction type: a refund is money coming
+        back and is positive, everything else is money going out and is
+        negative.
+
+        The magnitude is never touched -- only the sign is taken from the type,
+        because the digits are what the source got right and the sign is what
+        it dropped. Rows already carrying the correct sign are left alone and
+        not counted.
+
+        Each corrected row is flagged as well as counted: the value on it now
+        differs from the one in ``raw_transactions``, and that has to be
+        traceable to the transaction rather than only to a total in the report.
+
+        :param df: Frame with amounts parsed and the processing type resolved.
+        :returns: The frame with every amount signed by its type.
+        """
+        if "PROCESSING_TYPE_CLEANED" not in df.columns:
+            return df
+
+        refund = df["PROCESSING_TYPE_CLEANED"].astype(str) == REFUND_LABEL
+        for target in AMOUNT_COLUMNS.values():
+            if target not in df.columns:
+                continue
+            signed = df[target].abs().where(refund, -df[target].abs())
+            wrong = df[target].notna() & (signed != df[target])
+            df[target] = signed
+
+            if "VALIDATION_FLAGS" not in df.columns:
+                df["VALIDATION_FLAGS"] = ""
+            df.loc[wrong, "VALIDATION_FLAGS"] = (
+                df.loc[wrong, "VALIDATION_FLAGS"]
+                .replace("", pd.NA)
+                .fillna(SIGN_FLAG)
+                .where(
+                    lambda s: s == SIGN_FLAG,
+                    lambda s: s + ";" + SIGN_FLAG,
+                )
+            )
+            self.log(f"{target}.sign_restored", int(wrong.sum()))
 
         return df
 

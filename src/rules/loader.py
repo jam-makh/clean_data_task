@@ -32,6 +32,21 @@ def processing_codes() -> dict[str, str]:
     return load("processing_codes")["codes"]
 
 
+def fx_rates() -> dict[str, float]:
+    """
+    Inverts the rule file's "units per USD" into the rate the data states,
+    which is USD per unit -- the direction ``FX_RATE`` is stored in.
+
+    :returns: Currency code to USD per one unit of it.
+    """
+    units = load("fx_rates")["units_per_usd"]
+    return {
+        code.upper(): 1 / float(value)
+        for code, value in units.items()
+        if float(value) > 0
+    }
+
+
 def date_formats() -> tuple[list[dict], set[str]]:
     """:returns: The ordered format list and the set of null tokens."""
     data = load("date_formats")
