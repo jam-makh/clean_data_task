@@ -31,6 +31,10 @@ Run the test suite.
 ```bash
 make test
 ```
+N.B.: Make sure to download 'make' beforehand. One way of doing that is running the following command in powershell:  
+```bash
+choco install make
+```
 
 Run the read-only profiler to inspect a file before cleaning it.
 
@@ -45,42 +49,7 @@ python main.py
 python -m pytest -q
 ```
 
-### The four files that matter
-
-| File | Role |
-|---|---|
-| `requirements.txt` | The two runtime dependencies, pinned to the versions the pipeline is verified against. |
-| `requirements-dev.txt` | The same plus `pytest`. This is the one to install for development. |
-| `pytest.ini` | Test configuration. `pythonpath` is what lets the suite import `src.*` and `main` from the repo root. |
-| `.venv/` | The environment itself. Disposable — delete it and rebuild with the three commands above. Not committed. |
-
-There is no packaging metadata, and the project is not installed into the environment. It is an application run from the repo root, not a library imported from elsewhere, so an install would buy nothing.
-
-Use it as a library within the repo. `src/` holds the steps, the orchestrator and the report; `main.py` at the repo root is the entry point that composes them.
-
-```python
-from src.pipeline import TransactionCleaner
-
-cleaner = TransactionCleaner(mcc_reference=reference)
-cleaned = cleaner.run(raw)
-print(cleaner.report)
-```
-
-From the repo root, the one-call form is also available:
-
-```python
-from main import clean_transactions
-
-cleaned, report = clean_transactions(
-    "data/raw/synthetic_dirty_transactions_v4.xlsx",
-    output_path="data/output/cleaned_transactions.xlsx",
-)
-print(report)
-```
-
-`clean_transactions` accepts a path or an in-memory DataFrame, so the same call works against a workbook now and a database extract later.
-
----
+`src/` holds the steps, the orchestrator and the report; `main.py` at the repo root is the entry point that composes them.
 
 ## Shape
 
