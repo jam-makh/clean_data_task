@@ -1,4 +1,9 @@
-"""Cross-field checks. Changes no data; records what disagrees."""
+"""
+Cross-field Validation Module.
+
+Performs read-only validation across related columns to flag discrepancies.
+Note: This module tags problematic rows; it does NOT mutate or drop data.
+"""
 
 import pandas as pd
 
@@ -6,28 +11,21 @@ from src.cleaners.base import BaseCleaner
 from src.cleaners.codes import REFUND_LABEL
 from src.rules import loader
 
-# A null in any of these makes the row unusable for its purpose, and is the
-# only condition under which dropping a row would be justified.
+# Critical columns required for transaction processing.
+# Missing values here are the only valid justification for dropping a row.
 REQUIRED = [
     "TXN_ID", "ACCOUNT_ID", "TXN_DATE_TIME_CLEANED", "TXN_AMOUNT_CLEANED",
     "TXN_CCY",
 ]
 
-# How far the two amounts may drift before they count as disagreeing. FX_RATE
-# is stored to six decimals, so a large transaction reconciles to a few cents
-# rather than exactly; a relative tolerance holds across the four orders of
-# magnitude this file spans, where a fixed one would flag every large row or
-# miss every small one. At 1% the ten rows that differ only by rate rounding
-# fall inside it, and the 42 that are genuinely wrong stay outside.
+# Relative tolerance (1%) for transaction amount reconciliation.
+# Handles minor rounding discrepancies caused by 6-decimal FX rates across
+# varying transaction scales, while still isolating true data errors.
 FX_TOLERANCE = 0.01
 
-# How far a row's own rate may sit from the reference before the rate itself is
-# suspect. Far wider than FX_TOLERANCE, and for a different reason: that one
-# allows for rounding, this one has to allow for a currency genuinely moving
-# over the seven months the file covers. Every floating currency here stays
-# within 4.3% of its own median, so 15% catches nothing on merit alone -- which
-# is the point. It fires only where a rate is wrong by an order of magnitude,
-# not where it is merely from a different Tuesday.
+# Max allowed deviation (15%) between a row's exchange rate and the reference rate.
+# Set wide to accommodate natural market fluctuation over the 7-month period,
+# while catching severe anomalies (e.g., decimal placement or order-of-magnitude errors).
 FX_REFERENCE_TOLERANCE = 0.15
 
 

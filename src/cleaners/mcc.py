@@ -1,4 +1,4 @@
-"""MCC validation: curated overrides, rules, and a review queue."""
+"""MCC resolution: curated overrides, rules, and a review queue."""
 
 import math
 from collections import Counter
@@ -16,7 +16,7 @@ HIGH, MEDIUM, PENDING = "HIGH", "MEDIUM", "PENDING"
 CONFIDENCE_ORDER = [HIGH, MEDIUM, PENDING]
 
 
-class MccValidator(BaseCleaner):
+class MccResolver(BaseCleaner):
     """
     Assigns an MCC suggestion and a confidence tier without ever overwriting
     ``MCC_CODE``.
@@ -154,7 +154,7 @@ class MccValidator(BaseCleaner):
         (top, top_n), *rest = counts.most_common()
         second_n = rest[0][1] if rest else 0
         n = sum(counts.values())
-        p_value = MccValidator._binomial_tail(n, len(counts), top_n)
+        p_value = MccResolver._binomial_tail(n, len(counts), top_n)
 
         specific = {c: k for c, k in counts.items() if c != catch_all}
 

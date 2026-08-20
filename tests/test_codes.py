@@ -5,7 +5,7 @@ import pandas as pd
 from src.cleaners.codes import CodeNormalizer
 from src.cleaners.merchant import MerchantCleaner
 from src.rules import loader
-from src.validators.mcc import MccValidator
+from src.cleaners.mcc import MccResolver
 
 
 def test_leading_zeros_are_restored(report, tiny_frame):
@@ -38,12 +38,12 @@ def test_unknown_mcc_is_reported(report, tiny_frame):
 def _score(counts, merchant="TEST MERCHANT"):
     """
     :param counts: MCC code to row count.
-    :returns: The decision dict MccValidator reaches for that merchant.
+    :returns: The decision dict MccResolver reaches for that merchant.
     """
     rows = [{"MERCHANT_NAME_CLEANED": merchant, "MCC_CODE_CLEANED": c}
             for c, n in counts.items() for _ in range(n)]
     from src.utils.report import CleaningReport
-    validator = MccValidator(CleaningReport())
+    validator = MccResolver(CleaningReport())
     validator.apply(pd.DataFrame(rows))
     return validator.decisions[merchant]
 
@@ -123,7 +123,7 @@ def test_atm_rule_is_deterministic(report):
             "PROCESSING_TYPE": ["ATM Cash Withdrawal", "ATM Cash Withdrawal"],
         }
     )
-    out = MccValidator(report).apply(df)
+    out = MccResolver(report).apply(df)
     assert out["MCC_CODE_SUGGESTED"].iat[1] == "6011"
     assert "MCC_ATM_MISMATCH" in out["VALIDATION_FLAGS"].iat[1]
 

@@ -78,7 +78,7 @@ flowchart TD
         S5[MissingValueHandler]
         S6[MerchantCleaner]
         S7[CityNormalizer]
-        S8[MccValidator]
+        S8[MccResolver]
         S9[ConsistencyValidator]
     end
 
@@ -215,7 +215,7 @@ make test
 
 **Resolve the settlement-date question.** The 14 unknown dates are left null pending a domain answer on whether the column drives chargeback windows, statement periods, or regulatory reporting, and whether the source can simply be re-queried.
 
-**Replace curated overrides with internal reference data.** An existing merchant master or the transaction-categorization pipeline's own merchant→category mapping would be authoritative and inside the security perimeter, making layers 2–4 of the MCC validator largely redundant.
+**Replace curated overrides with internal reference data.** An existing merchant master or the transaction-categorization pipeline's own merchant→category mapping would be authoritative and inside the security perimeter, making layers 2–4 of the MCC resolver largely redundant.
 
 **Extend the MCC reference.** Car rental (`7512` in ISO 18245) is absent, so `AVIS` and `HRTZ` are recorded under `7538` Automotive Service Shops by convention rather than correctness.
 
