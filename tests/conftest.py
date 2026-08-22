@@ -11,6 +11,9 @@ SOURCE = (
     Path(__file__).resolve().parents[1]
     / "data/raw/synthetic_dirty_transactions_v4.xlsx"
 )
+FORECAST = (
+    Path(__file__).resolve().parents[1] / "data/raw/forecast_balance_data.csv"
+)
 
 
 @pytest.fixture(scope="session")
@@ -33,6 +36,20 @@ def transactions(workbook):
 def mcc_reference(workbook):
     """:returns: MCC code to category."""
     return workbook[1]
+
+
+@pytest.fixture(scope="session")
+def forecast():
+    """
+    :returns: The forecast-balance source, read as text so the cleaners see
+        the same dirt a real load would. Session-scoped: it is 265k rows and
+        every step under test wants all of them.
+    """
+    if not FORECAST.exists():
+        pytest.skip(f"source file not present: {FORECAST}")
+    return pd.read_csv(
+        FORECAST, dtype=str, keep_default_na=False, na_values=[""]
+    )
 
 
 @pytest.fixture

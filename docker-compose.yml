@@ -1,0 +1,90 @@
+# Local infrastructure for the Stage 2 pipeline: the database it persists to
+# and the broker it announces itself on. Spark is deliberately NOT here --
+# it runs in the project venv on the host, so the edit-run loop stays fast and
+# a debugger can attach to the driver.
+#
+# Kafka runs in KRaft mode: it is its own controller, and there is no
+# ZooKeeper container. Most Kafka tutorials still show one, because ZooKeeper
+# was mandatory before Kafka 3.3 and only fully removed in 4.0. If you find a
+# guide that starts by running `zookeeper-server-start`, it predates this
+# setup and its instructions will not match what is below.
+#
+# The image also does the KRaft storage format step for you. Running the
+# downloaded distribution by hand instead means generating a cluster UUID and
+# formatting the log directory first, before the broker will start at all --
+# see the notes accompanying this file for that path.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: cleaning-postgres
+    restart: unless-stopped
+    ports:
+      # Host port 5432 -> container 5432. If something already listens on
+      # 5432 locally, change the LEFT number only and update pipeline.yaml.
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipeline}
+      # Defaulted so `docker compose up` works with no .env, but read from the
+      # environment first, which is where a real credential would come from.
+      # Nothing outside this machine can reach the port, so a weak local
+      # default is a convenience rather than an exposure.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipeline}
+      POSTGRES_DB: ${POSTGRES_DB:-transactions}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Makes `docker compose ps` report "healthy" rather than merely
+      # "running" -- Postgres accepts a TCP connection several seconds before
+      # it will accept a query, and that gap is a confusing first failure.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pipeline} -d ${POSTGRES_DB:-transactions}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    # Matched to the kafka_2.13-4.3.1 distribution downloaded locally, so the
+    # official docs and the running broker agree. Kafka 4.x is KRaft-only --
+    # the ZooKeeper option was removed, not merely discouraged.
+    image: apache/kafka:4.3.1
+    container_name: cleaning-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      # This one broker is both the data plane and the controller quorum.
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # The address the broker HANDS BACK to clients after they connect. A
+      # client first reaches :9092, is told "talk to <this value>", and then
+      # reconnects there. Set it to the container name and your host-side
+      # producer will resolve a name that does not exist off the Docker
+      # network -- the single most common Kafka-on-Docker failure.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # All three default to 3, which a single-broker cluster can never
+      # satisfy; internal topics would fail to create and the errors point
+      # nowhere near the cause.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Default is 3000ms of deliberate wait before a consumer group forms.
+      # Useful in production, pure friction on one laptop.
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  pgdata:
+  kafkadata:

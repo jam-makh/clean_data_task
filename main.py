@@ -4,18 +4,22 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.config import runtime
+from src.config.fingerprint import short_fingerprint
 from src.pipeline import TransactionCleaner
 from src.rules import loader
 from src.utils.columns import output_names, presented
 from src.utils.io import read_workbook, write_workbook
 from src.utils.report import CleaningReport
 
-DEFAULT_SOURCE = Path("data/raw/synthetic_dirty_transactions_v4.xlsx")
-DEFAULT_OUTPUT = Path("data/output/cleaned_transactions.xlsx")
+# Sentinel rather than a literal default: resolving the configured path at
+# import time would make the module unimportable when the config file is
+# absent, which is exactly the caller who passes a frame instead of a path.
+_FROM_CONFIG = object()
 
 
 def clean_transactions(
-    source: str | Path | pd.DataFrame = DEFAULT_SOURCE,
+    source: str | Path | pd.DataFrame = _FROM_CONFIG,
     *,
     steps: list[type] | None = None,
     output_path: str | Path | None = None,
@@ -27,13 +31,17 @@ def clean_transactions(
     Accepts a path or an in-memory frame so the same call works against the
     workbook now and a database extract later without a rewrite.
 
-    :param source: Path to an .xlsx, or a DataFrame already in memory.
+    :param source: Path to an .xlsx, or a DataFrame already in memory;
+        defaults to the source in ``config/pipeline.yaml``.
     :param steps: Cleaner classes to run; defaults to the full pipeline.
     :param output_path: If given, writes the multi-sheet workbook there.
     :param mcc_reference: MCC lookup; read from the workbook when source is
         a path.
     :returns: (cleaned frame, report).
     """
+    if source is _FROM_CONFIG:
+        source = runtime.load().paths.source
+
     if isinstance(source, pd.DataFrame):
         raw, reference = source, (mcc_reference or {})
     else:
@@ -108,9 +116,13 @@ def build_sheets(
 
 
 def main() -> None:
-    """Runs the pipeline against the default paths and prints the report."""
-    cleaned, report = clean_transactions(output_path=DEFAULT_OUTPUT)
-    print(f"Cleaned {len(cleaned)} rows -> {DEFAULT_OUTPUT}\n")
+    """Runs the pipeline against the configured paths and prints the report."""
+    paths = runtime.load().paths
+    cleaned, report = clean_transactions(
+        paths.source, output_path=paths.output
+    )
+    print(f"Cleaned {len(cleaned)} rows -> {paths.output}")
+    print(f"Config fingerprint: {short_fingerprint()}\n")
     print(report)
 
 

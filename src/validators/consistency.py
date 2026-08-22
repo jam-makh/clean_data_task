@@ -11,22 +11,10 @@ from src.cleaners.base import BaseCleaner
 from src.cleaners.codes import REFUND_LABEL
 from src.rules import loader
 
-# Critical columns required for transaction processing.
-# Missing values here are the only valid justification for dropping a row.
-REQUIRED = [
-    "TXN_ID", "ACCOUNT_ID", "TXN_DATE_TIME_CLEANED", "TXN_AMOUNT_CLEANED",
-    "TXN_CCY",
-]
-
-# Relative tolerance (1%) for transaction amount reconciliation.
-# Handles minor rounding discrepancies caused by 6-decimal FX rates across
-# varying transaction scales, while still isolating true data errors.
-FX_TOLERANCE = 0.01
-
-# Max allowed deviation (15%) between a row's exchange rate and the reference rate.
-# Set wide to accommodate natural market fluctuation over the 7-month period,
-# while catching severe anomalies (e.g., decimal placement or order-of-magnitude errors).
-FX_REFERENCE_TOLERANCE = 0.15
+# The required-column list and both FX tolerances are judgements about how
+# strict this pipeline should be, not facts about the data, so they live in
+# config/policy.yaml -- each beside the argument that sets it -- and reach
+# this step through the injected policy.
 
 
 class ConsistencyValidator(BaseCleaner):
@@ -66,7 +54,7 @@ class ConsistencyValidator(BaseCleaner):
                 for idx in df.index[mask]:
                     flags[idx].append(code)
 
-        for column in REQUIRED:
+        for column in self.policy.validation.required_columns:
             if column in df.columns:
                 raise_flag(df[column].isna(), f"REQUIRED_NULL[{column}]")
 
@@ -100,7 +88,8 @@ class ConsistencyValidator(BaseCleaner):
             comparable = expected.notna() & billed.notna() & (expected > 0)
             drift = (expected - billed).abs() / expected.where(comparable)
             raise_flag(
-                comparable & (drift > FX_TOLERANCE), "FX_RECONCILE_MISMATCH"
+                comparable & (drift > self.policy.fx.reconcile_tolerance),
+                "FX_RECONCILE_MISMATCH",
             )
 
         if {"FX_RATE", "TXN_CCY"}.issubset(df.columns):
@@ -117,7 +106,8 @@ class ConsistencyValidator(BaseCleaner):
             known = expected_rate.notna() & stated.notna() & (stated > 0)
             off = (stated - expected_rate).abs() / expected_rate.where(known)
             raise_flag(
-                known & (off > FX_REFERENCE_TOLERANCE), "FX_RATE_OFF_REFERENCE"
+                known & (off > self.policy.fx.reference_tolerance),
+                "FX_RATE_OFF_REFERENCE",
             )
 
         if {"PROCESSING_TYPE_CLEANED", "BILLING_AMOUNT"}.issubset(df.columns):

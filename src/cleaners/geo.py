@@ -10,6 +10,12 @@ from src.rules import loader
 # and is genuinely absent.
 UNKNOWN = "UNKNOWN"
 
+# What kind of place the row happened in. UNKNOWN is reserved for a city the
+# source did not state: a marker like INTERNAL or INTERNET is not a missing
+# city, it is a positive statement that there was no merchant location, and
+# collapsing the two would lose 24614 rows worth of that distinction.
+LOCATION_TYPES = ["PHYSICAL", "ECOMMERCE", "INTERNAL", "UNKNOWN"]
+
 
 class CityNormalizer(BaseCleaner):
     """
@@ -36,6 +42,12 @@ class CityNormalizer(BaseCleaner):
             lambda c: aliases.get(c, c) if c else UNKNOWN
         )
 
+        markers = loader.non_geographic_cities()
+        kind = df["MERCHANT_CITY_CLEANED"].map(
+            lambda c: UNKNOWN if c == UNKNOWN else markers.get(c, "PHYSICAL")
+        )
+        df["LOCATION_TYPE"] = pd.Categorical(kind, categories=LOCATION_TYPES)
+
         online = df["MERCHANT_CITY_CLEANED"].isin(ecommerce)
         if "HAS_TERMINAL" in df.columns:
             online = online | ~df["HAS_TERMINAL"]
@@ -47,8 +59,8 @@ class CityNormalizer(BaseCleaner):
         # read as "mismatch".
         countries = loader.city_countries()
         df["MERCHANT_COUNTRY_EXPECTED"] = [
-            "" if city in ecommerce else countries.get(city, "")
-            for city in df["MERCHANT_CITY_CLEANED"]
+            "" if place != "PHYSICAL" else countries.get(city, "")
+            for city, place in zip(df["MERCHANT_CITY_CLEANED"], kind)
         ]
 
         # The single country column the reader sees: the city's country where
@@ -67,7 +79,7 @@ class CityNormalizer(BaseCleaner):
             )
         ]
 
-        physical = ~online & df["MERCHANT_CITY_CLEANED"].ne(UNKNOWN)
+        physical = kind.eq("PHYSICAL")
         unresolved = physical & df["MERCHANT_COUNTRY_EXPECTED"].eq("")
 
         self.log("cities_distinct_before", int(raw.nunique()))
@@ -78,6 +90,10 @@ class CityNormalizer(BaseCleaner):
             "city.unknown", int(df["MERCHANT_CITY_CLEANED"].eq(UNKNOWN).sum())
         )
         self.log("ecommerce_rows", int(online.sum()))
+        for value in LOCATION_TYPES:
+            count = int((kind == value).sum())
+            if count:
+                self.log(f"location_type.{value.lower()}", count)
         self.log("city.not_in_country_reference", int(unresolved.sum()))
         self.log(
             "country.unknown",

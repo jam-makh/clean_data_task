@@ -12,6 +12,8 @@ from src.cleaners import (
     MerchantCleaner,
     MissingValueHandler,
 )
+from src.config.policy import Policy
+from src.config.policy import load as load_policy
 from src.utils.report import CleaningReport
 from src.validators import ConsistencyValidator
 
@@ -49,11 +51,18 @@ class TransactionCleaner:
         self,
         steps: list[type] | None = None,
         mcc_reference: dict | None = None,
+        policy: Policy | None = None,
         **config,
     ):
         self.steps = steps if steps is not None else list(DEFAULT_STEPS)
         self.mcc_reference = mcc_reference or {}
         self.config = config
+        # Resolved once, here, and handed to every step. Loading eagerly means
+        # a malformed policy file fails before the first row is touched, and
+        # it guarantees all nine steps read the same generation of the rules
+        # -- which a lazy per-step load could not promise if the file changed
+        # underneath a long run.
+        self.policy = policy if policy is not None else load_policy()
         self.report = CleaningReport()
         self.result: pd.DataFrame | None = None
         self._instances: dict[str, object] = {}
@@ -67,7 +76,7 @@ class TransactionCleaner:
         current = df.copy()
 
         for step_class in self.steps:
-            step = step_class(self.report, **self.config)
+            step = step_class(self.report, policy=self.policy, **self.config)
             self._instances[step.name] = step
             if isinstance(step, CodeNormalizer):
                 current = step.apply(current, mcc_reference=self.mcc_reference)

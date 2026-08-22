@@ -1,0 +1,103 @@
+{
+  "_comment": "Near-miss merchant groups that string similarity gets wrong. Each group asserts a NEGATIVE fact -- these names are different merchants and must never collapse into one canonical form -- together with the evidence that settled it. The merchant master already keeps them apart by having separate entries, but that is an accident of its contents rather than a stated rule: nothing today fails if a future edit folds WTRSTNS into WAITROSE as an alias. This file is what fails. 'settled_by' records which evidence decided the split, matching the rule that a merge is confirmed against MCC and country, never against spelling. Evidence fields are optional: a group settled by a naming rule rather than by category carries no MCC, and the validator only checks what is stated.",
+  "never_merge": [
+    {
+      "id": "waitrose_waterstones",
+      "members": [
+        {
+          "canonical": "WAITROSE",
+          "aliases": ["WTRS"],
+          "mcc": "5411",
+          "country": "GB",
+          "business": "grocery"
+        },
+        {
+          "canonical": "WATERSTONES",
+          "aliases": ["WTRSTNS"],
+          "mcc": "5942",
+          "country": "GB",
+          "business": "books"
+        }
+      ],
+      "confusable_because": "both are vowel-dropped forms of a long W-initial British retailer; edit distance between WTRS and WTRSTNS is 3",
+      "settled_by": ["mcc"],
+      "note": "Same country, so geography cannot separate them. MCC can: 5411 grocery against 5942 books."
+    },
+    {
+      "id": "mezyan_mezyane",
+      "members": [
+        {
+          "canonical": "MEZYAN",
+          "aliases": [],
+          "mcc": "5812",
+          "country": "LB",
+          "business": "restaurant"
+        },
+        {
+          "canonical": "MEZYANE",
+          "aliases": [],
+          "mcc": "5691",
+          "country": "LB",
+          "business": "clothing"
+        }
+      ],
+      "confusable_because": "one trailing character apart, same country, both plausible transliterations of the same Arabic root",
+      "settled_by": ["mcc"],
+      "note": "The hardest pair in the file. Every signal except MCC agrees, and a trailing-E normaliser would merge them."
+    },
+    {
+      "id": "careem_crepaway",
+      "members": [
+        {
+          "canonical": "CAREEM",
+          "aliases": ["CRM"],
+          "mcc": "4121",
+          "country": "AE",
+          "business": "ride hailing"
+        },
+        {
+          "canonical": "CREPAWAY",
+          "aliases": [],
+          "mcc": "5812",
+          "country": "LB",
+          "business": "restaurant"
+        }
+      ],
+      "confusable_because": "CRM is a plausible consonant skeleton for both names",
+      "settled_by": ["mcc", "country"],
+      "note": "CRM resolves to Careem. Both signals agree here, which is why this one was settleable and TSC S was not."
+    },
+    {
+      "id": "total_family",
+      "members": [
+        {
+          "canonical": "TOTAL LEBANON",
+          "aliases": ["TOTAL L", "TTL LEBANON"],
+          "business": "fuel"
+        },
+        {
+          "canonical": "TOTAL WINE",
+          "aliases": ["TOTAL W"],
+          "mcc": "5921",
+          "business": "wine and spirits"
+        },
+        {
+          "canonical": "TOTAL FITNESS CTR",
+          "aliases": [],
+          "business": "gym"
+        }
+      ],
+      "confusable_because": "three unrelated merchants sharing a first token; stripping the qualifier as a country suffix would collapse all three",
+      "settled_by": ["name"],
+      "note": "The documented exception to the country-qualifier rule. TOTAL LEBANON keeps its suffix precisely because bare TOTAL is ambiguous here, so this group is settled by the naming rule rather than by MCC."
+    }
+  ],
+  "unsettled": [
+    {
+      "id": "tsc_sultan_center",
+      "names": ["TSC S", "SULTAN CENTER"],
+      "reason": "Both 5411, but TSC S appears in LB and SULTAN CENTER in KW. The evidence disagrees, so nothing is asserted and TSC S stays in the review queue.",
+      "note": "Listed here so the absence of an assertion is itself recorded. Not enforced: TSC S has no entry in the merchant master to enforce against."
+    }
+  ]
+}

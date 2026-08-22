@@ -3,12 +3,16 @@
 import pandas as pd
 import pytest
 
+from src.config.policy import load as load_policy
 from src.rules import loader
-from src.validators.consistency import (
-    FX_REFERENCE_TOLERANCE,
-    FX_TOLERANCE,
-    ConsistencyValidator,
-)
+from src.validators.consistency import ConsistencyValidator
+
+# Read from the policy file rather than restated here, so a test cannot go on
+# passing against a tolerance the pipeline no longer uses. These are needed at
+# import time because the parametrisation below is built from them.
+_FX = load_policy().fx
+FX_TOLERANCE = _FX.reconcile_tolerance
+FX_REFERENCE_TOLERANCE = _FX.reference_tolerance
 
 
 def flags(rows, report):

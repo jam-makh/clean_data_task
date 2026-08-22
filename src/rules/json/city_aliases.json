@@ -1,19 +1,65 @@
 {
-  "_comment": "Canonical city -> spellings seen in the source. Transliteration variants (BEYROUTH/BEYRUT) and card-not-present markers (ECOM/E-COMMERCE) both collapse here.",
+  "_comment": "Canonical city -> spellings seen in the source. Transliteration variants (BEYROUTH/BEYRUT) and non-geographic markers (ECOM, INTERNAL) both collapse here. A marker is kept as its own value rather than blanked: 'this transaction had no merchant location' is information, and it is not the same statement as 'the location is unknown'.",
   "aliases": {
-    "INTERNET": ["ECOM", "E-COMMERCE", "ECOMMERCE"],
-    "BEIRUT": ["BEIRUT LB", "BEYROUTH", "BEYRUT", "BAYRUT"],
-    "JOUNIEH": ["JOUNIE", "JUNIYAH"],
-    "TRIPOLI": ["TARABLUS", "TRABLOUS"],
-    "SIDON": ["SAYDA", "SAIDA"],
-    "BYBLOS": ["JBEIL", "JBAIL"],
-    "ZAHLE": ["ZAHLEH"],
-    "ACHRAFIEH": ["ASHRAFIYA", "ASHRAFIEH"],
-    "HAMRA": ["AL HAMRA"],
-    "DUBAI": ["DUBAYY"],
-    "CAIRO": ["AL QAHIRAH"],
-    "KUWAIT CITY": ["AL KUWAYT"],
-    "ISTANBUL": ["ISTANBOUL"]
+    "INTERNET": [
+      "ECOM",
+      "E-COMMERCE",
+      "ECOMMERCE"
+    ],
+    "BEIRUT": [
+      "BEIRUT LB",
+      "BEYROUTH",
+      "BEYRUT",
+      "BAYRUT"
+    ],
+    "JOUNIEH": [
+      "JOUNIE",
+      "JUNIYAH"
+    ],
+    "TRIPOLI": [
+      "TARABLUS",
+      "TRABLOUS"
+    ],
+    "SIDON": [
+      "SAYDA",
+      "SAIDA"
+    ],
+    "BYBLOS": [
+      "JBEIL",
+      "JBAIL"
+    ],
+    "ZAHLE": [
+      "ZAHLEH"
+    ],
+    "ACHRAFIEH": [
+      "ASHRAFIYA",
+      "ASHRAFIEH"
+    ],
+    "HAMRA": [
+      "AL HAMRA"
+    ],
+    "DUBAI": [
+      "DUBAYY"
+    ],
+    "CAIRO": [
+      "AL QAHIRAH"
+    ],
+    "KUWAIT CITY": [
+      "AL KUWAYT"
+    ],
+    "ISTANBUL": [
+      "ISTANBOUL"
+    ]
   },
-  "ecommerce_tokens": ["INTERNET", "ECOM", "E-COMMERCE", "ECOMMERCE"]
+  "ecommerce_tokens": [
+    "INTERNET",
+    "ECOM",
+    "E-COMMERCE",
+    "ECOMMERCE"
+  ],
+  "non_geographic": {
+    "INTERNET": "ECOMMERCE",
+    "INTERNAL": "INTERNAL"
+  },
+  "_non_geographic_comment": "Values that occupy the city column without naming a place. INTERNAL covers 24614 rows and is exclusively bank-internal traffic -- settlement, transfer, salary, interest, fee, card payment -- with zero purchases, so it marks an on-us movement rather than a missing city. Neither kind carries a country, and neither is UNKNOWN."
 }
