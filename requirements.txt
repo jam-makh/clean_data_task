@@ -1,3 +1,8 @@
 # Runtime dependencies, pinned to the versions the pipeline is verified against.
 pandas==3.0.5
 openpyxl==3.1.5
+
+# Reads config/*.yaml. YAML rather than JSON for the config layer because
+# every value there carries an argument for itself, and a format without
+# comments would strand the reasoning in a _comment key or lose it.
+PyYAML==6.0.2

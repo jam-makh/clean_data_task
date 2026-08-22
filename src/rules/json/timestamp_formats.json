@@ -1,0 +1,76 @@
+{
+  "_comment": "TXN_DATE_TIME formats in the forecast-balance source, and the wall-clock precision each one carries. Separate from date_formats.json, which describes the v4 workbook: that file writes '/' as day-first with 0 counterexamples, this one mixes both conventions in the same column (10814 rows provably day-first, 44902 provably month-first), so the two vocabularies cannot be merged without one of them losing. 'precision' is the finest unit the format can express, which is what stops a rendered 00:00:00 from being read as an observed midnight.",
+  "zone": {
+    "name": "Asia/Beirut",
+    "_comment": "The source clock, established from the epoch column: 8142 of its values decode to exactly 21:00 or 22:00 UTC, and the split between them moves on the last Sunday of March and October in all four years covered. That is EET/EEST. The offset is identical across all 12 merchant countries, so it is the processor's clock rather than the merchant's local time. Athens or Helsinki would give byte-identical results; the label is Beirut because LB is 65% of rows. Applied ONLY to the epoch column -- every other format is already a wall-clock reading and is never shifted."
+  },
+  "formats": [
+    {
+      "regex": "^\\d{9,11}$",
+      "strptime": "EPOCH_SECONDS",
+      "name": "epoch_seconds",
+      "precision": "SECOND"
+    },
+    {
+      "regex": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$",
+      "strptime": "%Y-%m-%d %H:%M:%S",
+      "name": "iso_second",
+      "precision": "SECOND"
+    },
+    {
+      "regex": "^\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}$",
+      "strptime": "%Y/%m/%d %H:%M",
+      "name": "iso_slash_minute",
+      "precision": "MINUTE"
+    },
+    {
+      "regex": "^\\d{2}-[A-Za-z]{3}-\\d{2} \\d{2}:\\d{2}$",
+      "strptime": "%d-%b-%y %H:%M",
+      "name": "day_month_abbrev_minute",
+      "precision": "MINUTE"
+    },
+    {
+      "regex": "^[A-Z][a-z]{2} \\d{1,2}, \\d{4}$",
+      "strptime": "%b %d, %Y",
+      "name": "month_day_year",
+      "precision": "DAY"
+    },
+    {
+      "regex": "^\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}$",
+      "strptime": "AMBIGUOUS_SLASH",
+      "name": "slash_minute",
+      "precision": "MINUTE"
+    }
+  ],
+  "settle_formats": [
+    {
+      "regex": "^\\d{4}-\\d{2}-\\d{2}$",
+      "strptime": "%Y-%m-%d",
+      "name": "iso_date",
+      "precision": "DAY"
+    },
+    {
+      "regex": "^\\d{2}-[A-Za-z]{3}-\\d{2}$",
+      "strptime": "%d-%b-%y",
+      "name": "day_month_abbrev",
+      "precision": "DAY"
+    },
+    {
+      "regex": "^\\d{2}/\\d{2}/\\d{4}$",
+      "strptime": "AMBIGUOUS_SLASH",
+      "name": "slash_date",
+      "precision": "DAY"
+    }
+  ],
+  "null_tokens": [
+    "",
+    "0",
+    "0000-00-00",
+    "0000-00-00 00:00:00",
+    "1970-01-01",
+    "1970-01-01 00:00:00",
+    "9999-12-31",
+    "9999-12-31 00:00:00"
+  ],
+  "_null_token_comment": "Date-shaped values that mean 'no date'. 9999-12-31 is the one that has to be listed rather than discovered: it appears in 353 SETTLE_DATE rows as a far-future 'never settled' sentinel, and it is outside the bounds of a nanosecond timestamp, so parsing it raises rather than producing a wrong answer. 0000-00-00 covers another 543. Both become NaT and are counted; MissingValueHandler is what turns that null into a status."
+}

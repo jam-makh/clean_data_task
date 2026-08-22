@@ -1,0 +1,25 @@
+{
+  "_comment": "Minor-unit metadata, kept separate from fx_rates.json: that file answers 'what is this worth', this one answers 'how is it written'. The pipeline uses one derived fact -- the set of currencies with no minor unit -- to disambiguate a single trailing comma group. In '5.727.580,00' the last group is a decimal; in an LBP amount ending ',000' it can only be a thousands separator, because LBP has no sub-unit to hold three digits. IQD, KRW and VND do not appear in the source file and are listed defensively, so a later extract carrying them behaves correctly rather than silently dividing by a thousand.",
+  "minor_units": {
+    "AED": 2,
+    "AUD": 2,
+    "CAD": 2,
+    "CHF": 2,
+    "EGP": 2,
+    "EUR": 2,
+    "GBP": 2,
+    "IQD": 0,
+    "JOD": 3,
+    "JPY": 0,
+    "KRW": 0,
+    "KWD": 3,
+    "LBP": 0,
+    "QAR": 2,
+    "SAR": 2,
+    "SEK": 2,
+    "TRY": 2,
+    "USD": 2,
+    "VND": 0
+  },
+  "_note_three_decimal": "JOD and KWD are three-decimal currencies (1000 fils). The pipeline does not currently act on that -- the only rule it applies is the zero-decimal one above -- but the fact is recorded here rather than lost, because an amount parser that assumed two decimals everywhere would misread them."
+}

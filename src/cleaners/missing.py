@@ -10,10 +10,9 @@ from src.cleaners.base import BaseCleaner
 TERMINAL_SENTINEL = re.compile(r"^0+$")
 AUTH_SENTINEL = re.compile(r"^0+$")
 
-# A 6-character alphanumeric auth code has ~2.2 billion combinations, so across
-# a few thousand rows the expected number of genuine collisions is ~0.001. Any
-# repeat at all is therefore a planted value, not chance.
-AUTH_REPEAT_THRESHOLD = 2
+# The repeat threshold that decides a planted auth code from a chance
+# collision is a judgement about this source, so it lives in
+# config/policy.yaml with the probability argument that sets it.
 
 
 class MissingValueHandler(BaseCleaner):
@@ -43,9 +42,8 @@ class MissingValueHandler(BaseCleaner):
         if "AUTH_CODE" in df.columns:
             codes = df["AUTH_CODE"].map(self.text)
             counts = Counter(c for c in codes if c)
-            repeated = {
-                c for c, n in counts.items() if n >= AUTH_REPEAT_THRESHOLD
-            }
+            threshold = self.policy.missing.auth_repeat_threshold
+            repeated = {c for c, n in counts.items() if n >= threshold}
             invalid = codes.map(
                 lambda c: not c
                 or bool(AUTH_SENTINEL.match(c))

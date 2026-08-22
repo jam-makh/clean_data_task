@@ -1,0 +1,17 @@
+# Runtime wiring: where the pipeline reads from and writes to.
+#
+# Separate from policy.yaml because it answers a different question. Policy
+# decides WHAT the pipeline does to a row and changes the output; this file
+# decides WHERE the work happens and does not. That split is why the config
+# fingerprint covers policy.yaml and the rule vocabularies but deliberately
+# excludes this file -- pointing the pipeline at a different directory must
+# not read as "the rules changed".
+#
+# Stage 2 adds a `database:` section here when Postgres exists to point at,
+# and a `kafka:` section when the broker does. Neither is stubbed in advance:
+# config for a service that does not exist yet cannot be validated, and an
+# untested default is worse than an absent one.
+
+paths:
+  source: data/raw/synthetic_dirty_transactions_v4.xlsx
+  output: data/output/cleaned_transactions.xlsx

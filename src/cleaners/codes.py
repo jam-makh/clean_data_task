@@ -5,14 +5,9 @@ import pandas as pd
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
 
-# ISO 8583 field 3 is six digits in full (type, from-account, to-account); this
-# source carries only the leading transaction-type pair. The field is
-# positional and fixed-length, so 0 and 00 are different tokens -- padding is
-# what makes the lookup key stable after Excel read the column as an integer.
-# What each code means is a property of the file, not of the standard, and is
-# asserted in processing_codes.json.
-PROCESSING_CODE_WIDTH = 2
-MCC_WIDTH = 4
+# The two code widths are a property of the source network rather than of the
+# standard, so they live in config/policy.yaml with the reasoning that fixes
+# them; what each code *means* is asserted in processing_codes.json.
 
 # The one label that means money coming back to the customer; everything else
 # -- purchase, cash withdrawal -- is money going out. It is spelled exactly as
@@ -38,10 +33,11 @@ class CodeNormalizer(BaseCleaner):
     ) -> pd.DataFrame:
         df = df.copy()
         codes = loader.processing_codes()
+        widths = self.policy.codes
 
         if "PROCESSING_CODE" in df.columns:
             df["PROCESSING_CODE_CLEANED"] = df["PROCESSING_CODE"].map(
-                lambda v: self.text(v).zfill(PROCESSING_CODE_WIDTH)
+                lambda v: self.text(v).zfill(widths.processing_code_width)
             )
             unknown = ~df["PROCESSING_CODE_CLEANED"].isin(codes)
             self.log("processing_code.unknown", int(unknown.sum()))
@@ -65,7 +61,7 @@ class CodeNormalizer(BaseCleaner):
 
         if "MCC_CODE" in df.columns:
             df["MCC_CODE_CLEANED"] = df["MCC_CODE"].map(
-                lambda v: self.text(v).zfill(MCC_WIDTH)
+                lambda v: self.text(v).zfill(widths.mcc_width)
             )
             reference = mcc_reference or {}
             df["MCC_CATEGORY"] = df["MCC_CODE_CLEANED"].map(

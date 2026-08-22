@@ -4,10 +4,10 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 
-BUSINESS_KEYS = [
-    ["ACCOUNT_ID", "TXN_DATE_TIME", "TXN_AMOUNT", "MERCHANT_NAME"],
-    ["ACCOUNT_ID", "TXN_DATE_TIME", "TXN_AMOUNT"],
-]
+# The key sets that identify one transaction live in config/policy.yaml: in
+# Stage 2 the same definition also derives the database upsert key, and two
+# notions of "the same transaction" that can drift apart is exactly the bug
+# an idempotent write is supposed to prevent.
 
 
 class DuplicateCleaner(BaseCleaner):
@@ -33,7 +33,7 @@ class DuplicateCleaner(BaseCleaner):
         df = df.drop_duplicates().copy()
         self.log("exact_duplicate_rows_dropped", before - len(df))
 
-        for keys in BUSINESS_KEYS:
+        for keys in self.policy.duplicates.business_keys:
             if set(keys).issubset(df.columns):
                 n = int(df.duplicated(subset=keys, keep=False).sum())
                 self.log(f"business_key_repeats[{'+'.join(keys)}]", n)

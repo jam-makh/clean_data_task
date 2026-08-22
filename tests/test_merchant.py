@@ -166,3 +166,56 @@ def test_every_observed_name_is_recognised(transactions):
         set(out.loc[~out["MERCHANT_RECOGNISED"], "MERCHANT_NAME_CLEANED"])
     )
     assert not missing, missing
+
+
+# --- affixes the forecast source wraps around the name ---------------------
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "ECOM/H AND M", "POS H AND M", "POSHANDM", "TRM:10372 H AND M",
+        "TRM:87669HANDM", "H AND M/REF162491", "  H AND M -CARD PMT-",
+        "HANDM-CARDPMT-", "ecom/handm", "h and m",
+    ],
+)
+def test_channel_and_terminal_affixes_are_stripped(raw):
+    """
+    ECOM/ sits on 11.8% of PURCHASE rows and 11.8% of ATM_WITHDRAWAL rows, so
+    it marks nothing about how the transaction was acquired -- it is noise
+    wrapped around the name, and 279 spellings of this one merchant differ by
+    little else.
+    """
+    cleaned = clean(raw)[0]
+    assert loader.merchant_aliases().get(cleaned) == "H AND M"
+
+
+def test_a_slash_prefix_does_not_eat_the_first_word():
+    """
+    REF_SUFFIX matched the slash inside a channel prefix and deleted the word
+    after it, so ECOM/LULU HYPERMARKET became "ECOM HYPERMARKET". The space
+    before a real reference code is what tells the two apart.
+    """
+    assert clean("ECOM/LULU HYPERMARKET")[0] == "LULU HYPERMARKET"
+    assert clean("ECOM/NOON")[0] == "NOON"
+
+
+def test_a_fused_terminal_id_does_not_swallow_the_merchant():
+    """
+    TRM:<digits> runs straight into the name, and the fused token read as one
+    alphanumeric reference code -- which reduced 4150 rows to "TRM".
+    """
+    assert clean("TRM:31659ZAATARWZEIT")[0] == "ZAATARWZEIT"
+    assert clean("TRM:11903 H AND M")[0] == "H AND M"
+
+
+def test_a_reference_code_is_still_stripped():
+    """The fix must not cost the behaviour it was narrowing."""
+    assert clean("DUBAI MN /ufw")[0] == "DUBAI MN"
+    assert clean("STRBCKS  /bww")[0] == "STRBCKS"
+
+
+def test_no_name_is_reduced_to_an_affix_on_the_forecast_source(forecast):
+    """6733 rows used to survive as the bare string "TRM" or "ECOM"."""
+    names = forecast["MERCHANT_NAME"].dropna().unique()
+    cleaned = {MerchantCleaner.clean_one(n, PROCESSORS)[0] for n in names}
+    assert not cleaned & {"TRM", "POS", "ECOM", "REF", ""}

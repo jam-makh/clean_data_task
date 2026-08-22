@@ -1,0 +1,57 @@
+# Cleaning policy: the tunable decisions, separated from both the domain
+# vocabulary in src/rules/json/ and the runtime wiring in pipeline.yaml.
+#
+# The distinction that decides what belongs here: a value in this file is a
+# JUDGEMENT that a reasonable engineer could set differently and defend. A
+# value in src/rules/json/ is a FACT about the world or the source system.
+# A regex in merchant.py is neither -- it is parsing algorithm, and it stays
+# in code, because externalising it buys a new failure mode and nothing else.
+
+fx:
+  # Relative tolerance for TXN_AMOUNT * FX_RATE against BILLING_AMOUNT.
+  # Absorbs rounding from 6-decimal rates across varying transaction scales
+  # while still isolating true data errors.
+  reconcile_tolerance: 0.01
+
+  # Max deviation between a row's own rate and the reference rate for its
+  # currency. Set wide deliberately: EUR moved 1.0631-1.1098 and GBP
+  # 1.2393-1.2907 across the Mar-Sep 2022 window, which is ordinary trading,
+  # not corruption. This catches order-of-magnitude faults -- a dead LBP peg,
+  # a misplaced decimal -- not daily drift.
+  reference_tolerance: 0.15
+
+validation:
+  # Nulls here are the only justification for dropping a row. Every other
+  # missing value is flagged and kept. Adding a column to this list makes the
+  # pipeline stricter about what it will refuse to process.
+  required_columns:
+    - TXN_ID
+    - ACCOUNT_ID
+    - TXN_DATE_TIME_CLEANED
+    - TXN_AMOUNT_CLEANED
+    - TXN_CCY
+
+codes:
+  # ISO 8583 field 3 is six digits in full (type, from-account, to-account);
+  # this source carries only the leading transaction-type pair. The field is
+  # positional and fixed-length, so 0 and 00 are different tokens -- padding
+  # is what makes the lookup key stable after Excel read the column as an
+  # integer. A file from a different network may carry the full six.
+  processing_code_width: 2
+  mcc_width: 4
+
+missing:
+  # A 6-character alphanumeric auth code has ~2.2 billion combinations, so
+  # across a few thousand rows the expected number of genuine collisions is
+  # ~0.001. Any repeat at all is therefore a planted value, not chance.
+  # Raise this only for a source where auth codes are legitimately reused.
+  auth_repeat_threshold: 2
+
+duplicates:
+  # Tried in order; the first list whose columns are all present wins. These
+  # also define the derived upsert key in Stage 2 -- a row identified as a
+  # duplicate here and a row that collides on the database key must be the
+  # same notion of "same transaction", or the two disagree.
+  business_keys:
+    - [ACCOUNT_ID, TXN_DATE_TIME, TXN_AMOUNT, MERCHANT_NAME]
+    - [ACCOUNT_ID, TXN_DATE_TIME, TXN_AMOUNT]

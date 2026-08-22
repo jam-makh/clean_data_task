@@ -6,15 +6,12 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.cleaners.codes import REFUND_LABEL
+from src.rules import loader
 
 AMOUNT_COLUMNS = {"TXN_AMOUNT": "TXN_AMOUNT_CLEANED"}
 
 # The flag raised on a row whose sign had to be restored.
 SIGN_FLAG = "AMOUNT_SIGN_RESTORED"
-
-# Currencies with no minor unit in practice, where a trailing ",000" group can
-# only be a thousands separator.
-ZERO_DECIMAL = {"LBP", "JPY", "KRW", "VND", "IQD"}
 
 _CLEAN = re.compile(r"[^\d.,()-]")
 
@@ -172,6 +169,7 @@ class AmountNormalizer(BaseCleaner):
         parts = text.split(sep)
         if len(parts) > 2:
             return "".join(parts)
-        if len(parts[1]) == 3 and currency.upper() in ZERO_DECIMAL:
+        zero_decimal = loader.zero_decimal_currencies()
+        if len(parts[1]) == 3 and currency.upper() in zero_decimal:
             return "".join(parts)
         return ".".join(parts)

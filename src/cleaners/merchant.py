@@ -9,7 +9,29 @@ from src.cleaners.base import BaseCleaner
 from src.rules import loader
 
 URL_SUFFIX = re.compile(r"\.(COM|NET|ORG|CO|IO|AI|ME|SA|AE|LB|FR|DE|EG)\b")
-REF_SUFFIX = re.compile(r"/[A-Z]{2,4}\b")
+# The space before the slash is load-bearing. Without it this also matches the
+# slash inside a channel prefix and eats the first word of the merchant:
+# ECOM/LULU HYPERMARKET became "ECOM HYPERMARKET". Every one of the 128
+# reference codes in the source is written with a space in front of it and
+# none of the channel prefixes are, so the space is what tells them apart.
+REF_SUFFIX = re.compile(r"\s/[A-Z]{2,4}\b")
+
+# Channel, terminal and settlement affixes wrapped around the merchant name.
+# These are noise, not signal: ECOM/ sits on 11.8% of PURCHASE rows and 11.8%
+# of ATM_WITHDRAWAL rows, so it says nothing about how the transaction was
+# acquired -- a real card-not-present marker could not appear on a cash
+# withdrawal at all. They are stripped rather than lifted into a column,
+# because a column of noise is still noise; PROCESSING_TYPE already carries
+# the channel, and carries it correctly.
+CHANNEL_PREFIX = re.compile(r"^(?:ECOM\s*/|POS\b\s*|POS(?=[A-Z]))")
+# Always TRM:<digits>, in 21431 of 21431 rows, and the digits run straight
+# into the name as often as not (TRM:87669HANDM). Stripping the whole token is
+# what stops the fused form being read as one alphanumeric reference code and
+# deleted, which reduced 4150 rows to the bare string "TRM".
+TERMINAL_PREFIX = re.compile(r"^TRM\s*:\s*\d+\s*")
+REF_NUMBER = re.compile(r"\s*/\s*REF\s*\d+\s*$")
+CARD_PMT_SUFFIX = re.compile(r"\s*-\s*CARD\s*PMT\s*-\s*$")
+AFFIXES = (CHANNEL_PREFIX, TERMINAL_PREFIX, REF_NUMBER, CARD_PMT_SUFFIX)
 # A second '*' carries the acquirer's reference code: WPY*DEUTSCHE BAHN *TNAS.
 # Codes containing a digit already died with the other reference codes, so
 # without this the purely alphabetic ones (TNAS, GTLD) survive as fake
@@ -184,6 +206,11 @@ class MerchantCleaner(BaseCleaner):
             else:
                 # Merchant is on the left; the right side is a reference code.
                 text = left
+
+        # Before PUNCT, which would turn '/' and ':' into spaces and leave
+        # each affix looking like an ordinary leading word.
+        for affix in AFFIXES:
+            text = affix.sub("", text.strip())
 
         text = STAR_REF.sub(" ", text)
         text = REF_SUFFIX.sub(" ", text)
