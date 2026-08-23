@@ -278,7 +278,7 @@ signal into a silent gap.
 |---|---|---|---|
 | `TERMINAL_ID` = `00000000` | 1051 | not applicable | `HAS_TERMINAL = False` |
 | `AUTH_CODE` sentinel/repeat | 109 | absent / invalid | `AUTH_CODE_VALID = False` |
-| `SETTLE_DATE` | 14 | absent | `SETTLE_DATE_STATUS = UNKNOWN` |
+| `SETTLE_DATE` | 14 | absent | `SETTLE_DATE_STATUS = MISSING` |
 | `MERCHANT_CITY` | 67 | absent | leave blank, no imputation |
 
 ### `TERMINAL_ID` at 46% is signal, not dirt
@@ -310,9 +310,22 @@ The lag distribution looks safe to impute (0–4 days, mode 1, median 2). It is 
 - `TXN_ID 4774694` is `Unmatched` — settlement is not even established, so an
   estimated date would assert an unevidenced event.
 
-`SETTLE_DATE_STATUS` carries the state instead. Writing the string `"unknown"`
-into the date column would be the **same defect as `0000-00-00`** — a text
-placeholder in a date field, forcing the column to text.
+`SETTLE_DATE_STATUS` carries the state instead, as `MISSING`.
+
+The sheet does print `UNKNOWN` in `settle_date_cleaned` for those rows, because
+a blank cell reads as "nothing to say here" as easily as "not settled yet". But
+it is printed by `render_dates` on the way out, in the same pass that applies
+the display format, and nowhere earlier. Holding the string in the column would
+be the **same defect as `0000-00-00`** — a text placeholder in a date field,
+forcing the column to text and breaking every sort and date calculation after
+it. The status column is the machine-readable half and says `MISSING`, not
+`UNKNOWN`, so it states what the source did rather than repeating the word in
+the cell beside it. The same treatment is applied to `running_balance` and to
+`running_balance_cleaned`, whose blanks go out as `UNKNOWN` for the same reason:
+a withheld balance is a decision the pipeline took, not a cell nobody filled in,
+and `running_balance_status` beside it names which decision — `CONTRADICTED`,
+`UNVERIFIED` or `UNKNOWN`. Both stay real nulls inside the pipeline; only the
+rendered copy carries the word.
 
 ### Auth codes: why any repeat is suspicious
 
@@ -328,7 +341,8 @@ So a repeat is a planted value, not chance. Threshold is 2. **4 values repeat.**
 ## Stage 6: Merchants
 
 **In:** `MERCHANT_NAME` — the dirtiest column
-**Out:** `MERCHANT_NAME_CLEANED`, `MERCHANT_PROCESSOR`, `MERCHANT_RECOGNISED`, `merchant_review` sheet
+**Out:** `MERCHANT_NAME_CLEANED`, `MERCHANT_PROCESSOR`, `MERCHANT_KIND`,
+`MERCHANT_TYPE`, `MATCHES_STATUS_CLEANED`, `merchant_review` sheet
 
 This stage has **two halves that must not be confused**: string cleaning, then a
 lookup. Cleaning cannot finish the job, and no amount of extra regex changes that.
@@ -338,10 +352,73 @@ flowchart TD
     A["SQ *AWS CS  22883"] --> B[1 split on the gated star]
     B --> C[2 strip reference codes, URLs, branches, legal suffixes]
     C --> D["AWS CS"]
-    D --> E{3 in merchants.json?}
-    E -- yes --> F["AWS CLOUD SERVICES<br/>RECOGNISED = true"]
-    E -- no --> G["keep as cleaned<br/>RECOGNISED = false<br/>-> merchant_review"]
+    D --> N{3 an internal descriptor?}
+    N -- yes --> P["kind = Internal<br/>named by the movement<br/>never queued"]
+    N -- no --> E{4 in merchants.json?}
+    E -- yes --> F["AWS CLOUD SERVICES<br/>kind = Merchant"]
+    E -- no --> G["keep as cleaned<br/>kind = Unidentified<br/>-> merchant_review"]
 ```
+
+### Three kinds, because the column holds three kinds of thing
+
+`MERCHANT_NAME` is not always a merchant. 41293 rows of the workbook and 176064
+of the forecast extract describe money moving **inside the bank** — settlement,
+standing orders, sweeps between a customer's own accounts. Counted as merchants,
+`CARD SETTLEMENT` is the largest one in the file by a factor of seven.
+
+| Kind | What it is | Status | Queued? |
+|---|---|---|---|
+| `Merchant` | a counterparty the master names | `Confirmed` | no |
+| `Internal` | money moving inside the bank | `Not a merchant` | no — already decided |
+| `Unidentified` | a counterparty nobody has named yet | `Pending` | **yes** |
+
+The sheet shows two of these, not three, under `MERCHANT_TYPE`: `Merchant` or
+`Internal`. A name nobody has resolved yet is still a counterparty, and how far
+resolving it got is `MATCHES_STATUS`'s question, one column along. `MERCHANT_TYPE`
+is also what replaced `LOCATION_TYPE` on the sheet — the fact worth carrying was
+never about geography but about whether the row had a counterparty at all, and
+the rest of what that column said is `MERCHANT_CITY_CLEANED` restated.
+
+An internal row is named by its movement, spelled in words: `CARD SETTLEMENT`,
+`STANDING ORDER`, `INTERNAL TRANSFER`. The kind token behind it (`STANDING_ORDER`)
+is a key in `internal_descriptors.json` and stays there — a column that otherwise
+holds `CARREFOUR` should not hold an identifier. Naming the movement rather than
+the descriptor is deliberate: the descriptor is truncated to eleven lengths and
+eight of them identify the kind without identifying whether it was
+`TRANSFER TO CURRENT` or `TRANSFER TO SAVINGS`, and the direction is already on
+the row in the amount's sign.
+
+`internal_descriptors.json` holds the descriptors, deliberately outside the
+merchant master. What separates them from the employers they resemble
+(`INDEVCO`, `MUREX`, `AUB PAYROLL`) is **`PROCESSING_TYPE`, not spelling**: every
+descriptor row is settlement or transfer with zero purchases, while every
+employer row is `SALARY_CREDIT` at 6012 and is a real counterparty.
+
+Internal rows are named by the **kind** of movement, not by the descriptor. The
+descriptor is truncated to eleven different lengths, and eight of them identify
+the kind without saying which of `TRANSFER TO CURRENT` or `TRANSFER TO SAVINGS`
+it was. Naming the kind states exactly what is known; the direction is already
+on the row in the amount's sign.
+
+### Truncation: one merchant as nine lengths of itself
+
+The forecast source cuts `MERCHANT_NAME` to a field width, so a name survives at
+every length it was cut to — and so does the `-CARD PMT-` suffix behind it. The
+two are told apart by the dash:
+
+```
+H AND M -C  -CA  -CAR  -CARD PMT-   ->  a dash there can only be the suffix; any length goes
+H AND M CARD  CARD P  CARD PM       ->  no dash: nothing shorter than the whole word CARD
+METRO CASH CAR                      ->  ...because this is METRO CASH CARRY, not METRO CASH
+```
+
+Reading a dashless tail as the suffix deleted the real last word and left seven
+merchants too short to recover. What survives the strip is settled by the
+master, where a prefix identifies a name **only when exactly one merchant
+extends it**. `AMERICAN UNIVERSITY BEIR` resolves; `CARREFOUR` and `PHARMACIE`
+do not, and go to review rather than to whichever candidate sorted first. That
+ambiguity check is also the enforcement behind `trap_pairs.json`: a never-merge
+group holds two entries by definition, so no prefix can ever reach both.
 
 ### Half 1 — string cleaning
 
@@ -414,9 +491,11 @@ one entry per merchant:
 }
 ```
 
-An unrecognised name is never guessed: it keeps its cleaned form,
-`MERCHANT_RECOGNISED` goes false, and it enters `merchant_review` with its raw
-spellings, countries and observed MCCs.
+An unrecognised name is never guessed: it keeps its cleaned form, its kind is
+`Unidentified`, and it enters `merchant_review` with its raw spellings,
+countries and observed MCCs. Internal movements never enter that queue — they
+are unrecognised as merchants because they are not merchants, which is a
+decision already taken rather than a question for a reviewer.
 
 ### The hard case: similarity is a hint, never the decision
 

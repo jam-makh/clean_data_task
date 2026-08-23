@@ -1,8 +1,36 @@
 {
   "_comment": "ISO 8583 field 3 is a fixed-length six-digit numeric field read as three 2-digit pairs (transaction type, from-account, to-account); this source carries only the leading pair, hence CODE_WIDTH=2 in codes.py. Because the field is positional, 0 and 00 are different tokens, which is what the padding restores after Excel read the column as an integer. The labels below are NOT taken from the standard -- published transaction-type tables disagree with each other, one reading 20 as Balance Inquiry. They are taken from the source file, where PROCESSING_CODE and PROCESSING_TYPE agree 1:1 across all 2296 rows: 0/Purchase (2112), 1/ATM Cash Withdrawal (71), 20/Purchase Return/Refund (113). A file from a different network may map the same codes differently, so this belongs here in a rule file rather than in code.",
+  "_directions_comment": "Which way money moves for each code, and therefore the sign its amount carries: CREDIT is money arriving at the account and is positive, DEBIT is money leaving and is negative. Not read off the labels -- 'SETTLEMENT_CREDIT' naming itself a credit is a convenience, not evidence, and 'INTEREST' names neither direction. Each verdict is taken from the source's own RUNNING_BALANCE: over the 118027 rows of forecast_balance_data.csv where two consecutive stated balances can be compared, every code moves the balance one way and never the other. Counts checked per code: 00/92947, 01/3231, 21/2709, 22/2129, 23/3044, 24/410, 25/1091, 26/12993, 27/836, 28/97, 29/103, 30/240, 31/197 -- zero counterexamples in any of them. Code 20 is the v4 workbook's refund and is not present in the forecast extract; it is a return of a purchase, which is the definition of money coming back. A code absent from this map has no declared direction and its amount is left exactly as the source wrote it.",
   "codes": {
     "00": "Purchase",
     "01": "ATM Cash Withdrawal",
-    "20": "Purchase Return/Refund"
+    "20": "Purchase Return/Refund",
+    "21": "Salary Credit",
+    "22": "Transfer In",
+    "23": "Transfer Out",
+    "24": "Fee",
+    "25": "Interest",
+    "26": "Settlement Credit",
+    "27": "Card Payment",
+    "28": "Bonus Credit",
+    "29": "Tuition",
+    "30": "Insurance Premium",
+    "31": "Emergency Expense"
+  },
+  "directions": {
+    "00": "DEBIT",
+    "01": "DEBIT",
+    "20": "CREDIT",
+    "21": "CREDIT",
+    "22": "CREDIT",
+    "23": "DEBIT",
+    "24": "DEBIT",
+    "25": "CREDIT",
+    "26": "CREDIT",
+    "27": "CREDIT",
+    "28": "CREDIT",
+    "29": "DEBIT",
+    "30": "DEBIT",
+    "31": "DEBIT"
   }
 }

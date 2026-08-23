@@ -7,6 +7,10 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 
+# The cleaned transaction timestamp, under either name a profile gives it:
+# DateNormalizer produces the first, TimestampNormalizer the second.
+TIMESTAMP_COLUMNS = ("TXN_DATE_TIME_CLEANED", "TXN_TS")
+
 TERMINAL_SENTINEL = re.compile(r"^0+$")
 AUTH_SENTINEL = re.compile(r"^0+$")
 
@@ -54,26 +58,40 @@ class MissingValueHandler(BaseCleaner):
             self.log("auth_code.repeated_values", len(repeated))
 
         if "SETTLE_DATE_CLEANED" in df.columns:
-            # UNKNOWN is expressed in its own column; the date column keeps a
-            # true null. A literal "unknown" string would force the column to
-            # text and break every sort and date calculation.
+            # MISSING says what the source did, which is the only thing this
+            # step knows: no readable settlement date was supplied. The word
+            # is deliberately not UNKNOWN, because the sheet writes UNKNOWN in
+            # SETTLE_DATE_CLEANED itself for exactly these rows, and a status
+            # that repeats the cell beside it tells a reader nothing.
+            #
+            # The frame keeps a true null throughout. The placeholder is a
+            # rendering, applied by ``render_dates`` on the way out: holding a
+            # literal string in the column here would force it to text and
+            # break every sort and date calculation the pipeline does after
+            # this step.
             status = pd.Series("OBSERVED", index=df.index, dtype=object)
-            status[df["SETTLE_DATE_CLEANED"].isna()] = "UNKNOWN"
-            if "TXN_DATE_TIME_CLEANED" in df.columns:
+            status[df["SETTLE_DATE_CLEANED"].isna()] = "MISSING"
+            # Whichever name the profile's date step produced. Naming only one
+            # of them would let the anomaly check silently never fire on the
+            # other file, which reads exactly like a clean run.
+            stamp = next(
+                (c for c in TIMESTAMP_COLUMNS if c in df.columns), None
+            )
+            if stamp is not None:
                 impossible = (
                     df["SETTLE_DATE_CLEANED"].notna()
-                    & df["TXN_DATE_TIME_CLEANED"].notna()
+                    & df[stamp].notna()
                     & (
                         df["SETTLE_DATE_CLEANED"].dt.normalize()
-                        < df["TXN_DATE_TIME_CLEANED"].dt.normalize()
+                        < df[stamp].dt.normalize()
                     )
                 )
                 status[impossible] = "ANOMALOUS"
                 self.log("settle_date.anomalous", int(impossible.sum()))
             df["SETTLE_DATE_STATUS"] = pd.Categorical(
-                status, categories=["OBSERVED", "UNKNOWN", "ANOMALOUS"]
+                status, categories=["OBSERVED", "MISSING", "ANOMALOUS"]
             )
-            self.log("settle_date.unknown", int((status == "UNKNOWN").sum()))
+            self.log("settle_date.missing", int((status == "MISSING").sum()))
 
         for column in ("MERCHANT_CITY", "MERCHANT_COUNTRY"):
             if column in df.columns:

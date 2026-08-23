@@ -13,6 +13,7 @@ for a long weekend.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -54,6 +55,42 @@ class MissingPolicy:
 
 
 @dataclass(frozen=True)
+class BalancePolicy:
+    """How closely a stated running balance must account for its rows."""
+
+    reconcile_tolerance: float
+
+
+@dataclass(frozen=True)
+class OutputPolicy:
+    """
+    How a timestamp is spelled on the way out.
+
+    A judgement, not a fact: the source writes dates six ways and none of them
+    is the right one for a reader. Day-first is the house convention here and
+    a reader elsewhere would set it differently, which is exactly what makes
+    it policy rather than a constant in the writer.
+
+    Three formats because a timestamp is rendered at the precision it was
+    observed at. Writing every row to the second would print 00:00:00 on the
+    rows that never carried a time, which is the fabrication the precision
+    column exists to prevent.
+    """
+
+    datetime: str
+    minute: str
+    date: str
+
+    def as_dict(self) -> dict[str, str]:
+        """:returns: The formats keyed the way the writer wants them."""
+        return {
+            "datetime": self.datetime,
+            "minute": self.minute,
+            "date": self.date,
+        }
+
+
+@dataclass(frozen=True)
 class DuplicatesPolicy:
     """Column sets that identify one transaction, most specific first."""
 
@@ -69,14 +106,18 @@ class Policy:
     :param validation: Required-column rules.
     :param codes: Code column widths.
     :param missing: Sentinel and repeat thresholds.
+    :param balance: Running-balance reconciliation tolerance.
     :param duplicates: Business key definitions.
+    :param output: Display formats applied on write.
     """
 
     fx: FxPolicy
     validation: ValidationPolicy
     codes: CodesPolicy
     missing: MissingPolicy
+    balance: BalancePolicy
     duplicates: DuplicatesPolicy
+    output: OutputPolicy
 
 
 def _section(data: dict, name: str, path: Path) -> dict:
@@ -179,6 +220,29 @@ def _business_keys(
     return tuple(parsed)
 
 
+def _format(section: dict, key: str, path: Path) -> str:
+    """
+    :returns: A strftime pattern, checked by using it rather than by parsing
+        it -- an invalid directive raises here, at load, instead of on the
+        last line of a long run.
+    :raises ConfigError: If absent, not a string, or not a usable pattern.
+    """
+    if key not in section:
+        raise ConfigError(f"{path}: missing required key output.{key}")
+    value = section[key]
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(
+            f"{path}: output.{key} must be a non-empty string, got {value!r}"
+        )
+    try:
+        datetime(2022, 1, 31, 13, 45, 56).strftime(value)
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(
+            f"{path}: output.{key} is not a usable date format: {exc}"
+        ) from exc
+    return value
+
+
 def parse(data: dict, path: Path = DEFAULT_PATH) -> Policy:
     """
     Validates a parsed policy mapping into a frozen ``Policy``.
@@ -198,7 +262,9 @@ def parse(data: dict, path: Path = DEFAULT_PATH) -> Policy:
     validation = _section(data, "validation", path)
     codes = _section(data, "codes", path)
     missing = _section(data, "missing", path)
+    balance = _section(data, "balance", path)
     duplicates = _section(data, "duplicates", path)
+    output = _section(data, "output", path)
 
     return Policy(
         fx=FxPolicy(
@@ -225,8 +291,18 @@ def parse(data: dict, path: Path = DEFAULT_PATH) -> Policy:
                 _positive(missing, "auth_repeat_threshold", "missing", path)
             )
         ),
+        balance=BalancePolicy(
+            reconcile_tolerance=_positive(
+                balance, "reconcile_tolerance", "balance", path
+            )
+        ),
         duplicates=DuplicatesPolicy(
             business_keys=_business_keys(duplicates, path)
+        ),
+        output=OutputPolicy(
+            datetime=_format(output, "datetime", path),
+            minute=_format(output, "minute", path),
+            date=_format(output, "date", path),
         ),
     )
 

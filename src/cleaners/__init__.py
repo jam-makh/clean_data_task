@@ -1,6 +1,7 @@
 """Cleaning steps, each handling one concern."""
 
 from src.cleaners.amounts import AmountNormalizer
+from src.cleaners.balance import BalanceReconstructor
 from src.cleaners.base import BaseCleaner
 from src.cleaners.codes import CodeNormalizer
 from src.cleaners.dates import DateNormalizer
@@ -14,6 +15,7 @@ from src.cleaners.timestamps import TimestampNormalizer
 
 __all__ = [
     "AmountNormalizer",
+    "BalanceReconstructor",
     "BaseCleaner",
     "CityNormalizer",
     "CodeNormalizer",

@@ -1,11 +1,12 @@
-# Runtime wiring: where the pipeline reads from and writes to.
+# Runtime wiring: where the pipeline reads from, where it writes to, and which
+# steps run for a given kind of file.
 #
 # Separate from policy.yaml because it answers a different question. Policy
 # decides WHAT the pipeline does to a row and changes the output; this file
-# decides WHERE the work happens and does not. That split is why the config
-# fingerprint covers policy.yaml and the rule vocabularies but deliberately
-# excludes this file -- pointing the pipeline at a different directory must
-# not read as "the rules changed".
+# decides WHERE the work happens and WHICH steps happen at all. That split is
+# why the config fingerprint covers policy.yaml and the rule vocabularies but
+# deliberately excludes this file -- pointing the pipeline at a different
+# directory must not read as "the rules changed".
 #
 # Stage 2 adds a `database:` section here when Postgres exists to point at,
 # and a `kafka:` section when the broker does. Neither is stubbed in advance:
@@ -13,5 +14,71 @@
 # untested default is worse than an absent one.
 
 paths:
+  # The default source, used when the command line names no file. It is a
+  # default and not a constant: `python main.py <path>` overrides it, which is
+  # what makes the pipeline runnable against a file nobody has seen yet
+  # without editing anything.
   source: data/raw/synthetic_dirty_transactions_v4.xlsx
   output: data/output/cleaned_transactions.xlsx
+
+# Which steps run, for which kind of file.
+#
+# This section exists because "reproducible on any file" and "one hardcoded
+# step list" cannot both be true. The two sources in hand disagree about
+# things a cleaner cannot paper over: the v4 workbook writes '/' dates
+# day-first with 0 counterexamples, the forecast extract mixes both
+# conventions in one column and needs the macro oracle to settle them.
+# Running either file's parser over the other silently produces wrong dates --
+# not an error, just wrong months -- so the choice has to be explicit and
+# recorded.
+#
+# `detect` names the columns that identify a file as belonging to a profile.
+# All of them must be present. Profiles are tried in the order written and the
+# first whose columns are all present wins, so the more specific profile is
+# listed first. A file matching none of them is an error naming what was
+# looked for, rather than a default guess: a source nobody has described is
+# exactly the case where guessing costs the most.
+#
+# `--profile NAME` on the command line skips detection entirely, which is the
+# escape hatch for a file whose columns lie.
+profiles:
+  # The forecast-balance extract. Detected by TXN_SEQ plus the macro columns,
+  # none of which the v4 workbook has.
+  forecast_balance:
+    detect: [TXN_SEQ, INTEREST_RATE_INDEX, INFLATION_INDEX]
+    steps:
+      # timestamps first: every later step that orders, groups or joins by
+      # date depends on it, and macro joins on the month it produces.
+      - timestamps
+      - macro
+      - duplicates
+      - codes
+      - amounts
+      # balance follows amounts: it moves the running balance by
+      # TXN_AMOUNT_CLEANED, which does not exist until that step has parsed it
+      # and signed it by the direction its processing code declares.
+      - balance
+      - missing
+      - merchant
+      - geo
+      - mcc
+      - consistency
+
+  # The v4 workbook. TERMINAL_ID is the discriminator -- the forecast extract
+  # has no terminal column at all.
+  transactions_v4:
+    detect: [TERMINAL_ID, MATCHES_STATUS]
+    steps:
+      # Dates precede duplicates because that step sequences IDs by date, and
+      # sorting mixed-format date strings orders garbage. amounts follows
+      # codes because it signs each amount by the transaction type that step
+      # resolves. mcc follows merchant because it groups by the cleaned name.
+      - dates
+      - duplicates
+      - codes
+      - amounts
+      - missing
+      - merchant
+      - geo
+      - mcc
+      - consistency

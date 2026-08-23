@@ -1,0 +1,23 @@
+{
+  "_comment": "Values that occupy MERCHANT_NAME without naming a counterparty. These describe the movement of money inside the bank, not who it went to, so they are not merchants and must not enter the merchant master -- doing so would put 41293 rows of settlement and transfer traffic into merchant-level totals. Separated from the employers that look similar (INDEVCO, MUREX, AUB PAYROLL) by PROCESSING_TYPE rather than by spelling: every row here is SETTLEMENT_CREDIT or TRANSFER_*, with zero purchases, while the employers are SALARY_CREDIT and are real counterparties.",
+  "descriptors": {
+    "CARD PAYMENT": "SETTLEMENT",
+    "CARD SETTLEMENT": "SETTLEMENT",
+    "STANDING ORDER": "STANDING_ORDER",
+    "STANDING ORDER SAVINGS": "STANDING_ORDER",
+    "SWEEP FROM CURRENT": "TRANSFER",
+    "SWEEP FROM SAVINGS": "TRANSFER",
+    "SWEEP TO CURRENT": "TRANSFER",
+    "SWEEP TO SAVINGS": "TRANSFER",
+    "TRANSFER FROM CURRENT": "TRANSFER",
+    "TRANSFER FROM SAVINGS": "TRANSFER",
+    "TRANSFER TO CURRENT": "TRANSFER",
+    "TRANSFER TO SAVINGS": "TRANSFER"
+  },
+  "_labels_comment": "Kind -> the name written into MERCHANT_NAME_CLEANED. The kind token is an identifier and reads like one: STANDING_ORDER is not a name a reader should meet on a sheet beside CARREFOUR. The label is the movement spelled the way the source spells it, in words, so the column holds one kind of thing throughout -- a name -- and the words are separated rather than run together. TRANSFER is labelled INTERNAL TRANSFER because that is what it is: money between the customer's own accounts, and the bare word would read as a transfer to somebody else.",
+  "labels": {
+    "SETTLEMENT": "CARD SETTLEMENT",
+    "STANDING_ORDER": "STANDING ORDER",
+    "TRANSFER": "INTERNAL TRANSFER"
+  }
+}

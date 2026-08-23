@@ -4,18 +4,57 @@ import pandas as pd
 
 from src.cleaners import (
     AmountNormalizer,
+    BalanceReconstructor,
     CityNormalizer,
     CodeNormalizer,
     DateNormalizer,
     DuplicateCleaner,
+    MacroCleaner,
     MccResolver,
     MerchantCleaner,
     MissingValueHandler,
+    TimestampNormalizer,
 )
 from src.config.policy import Policy
 from src.config.policy import load as load_policy
 from src.utils.report import CleaningReport
 from src.validators import ConsistencyValidator
+
+# Every step the pipeline can run, by the name a config file calls it. The
+# indirection exists so a profile is a list of strings in YAML rather than a
+# list of imports in Python -- which is what lets a new source be described
+# instead of coded.
+STEP_REGISTRY: dict[str, type] = {
+    "dates": DateNormalizer,
+    "timestamps": TimestampNormalizer,
+    "macro": MacroCleaner,
+    "duplicates": DuplicateCleaner,
+    "codes": CodeNormalizer,
+    "amounts": AmountNormalizer,
+    "balance": BalanceReconstructor,
+    "missing": MissingValueHandler,
+    "merchant": MerchantCleaner,
+    "geo": CityNormalizer,
+    "mcc": MccResolver,
+    "consistency": ConsistencyValidator,
+}
+
+
+def steps_for(names: list[str] | tuple[str, ...]) -> list[type]:
+    """
+    :param names: Step names in run order.
+    :returns: The classes they name.
+    :raises KeyError: If a name is not registered, listing what is -- a typo
+        in a profile must fail at load, not by silently skipping a step.
+    """
+    unknown = [n for n in names if n not in STEP_REGISTRY]
+    if unknown:
+        raise KeyError(
+            f"unknown pipeline step(s) {unknown}; "
+            f"known steps: {sorted(STEP_REGISTRY)}"
+        )
+    return [STEP_REGISTRY[n] for n in names]
+
 
 # Order is dictated by real dependencies, not preference. Dates precede
 # DuplicateCleaner's ID sequencing because that orders by date, and sorting

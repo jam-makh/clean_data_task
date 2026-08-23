@@ -6,6 +6,14 @@ from pathlib import Path
 
 _JSON_DIR = Path(__file__).parent / "json"
 
+# The two directions money can move, spelled once. CREDIT is money arriving at
+# the account and takes a positive amount; DEBIT is money leaving and takes a
+# negative one. Named constants rather than bare strings because three modules
+# compare against them, and a typo in any one of them would silently classify
+# every row the wrong way.
+CREDIT = "CREDIT"
+DEBIT = "DEBIT"
+
 
 @lru_cache(maxsize=None)
 def load(name: str) -> dict:
@@ -30,6 +38,15 @@ def processors() -> frozenset[str]:
 def processing_codes() -> dict[str, str]:
     """:returns: ISO 8583 transaction-type code to label."""
     return load("processing_codes")["codes"]
+
+
+def processing_code_directions() -> dict[str, str]:
+    """
+    :returns: Transaction-type code to ``CREDIT`` or ``DEBIT``. A code the
+        rule file does not declare is simply absent, which is what lets a
+        caller leave its amount untouched rather than guess a sign for it.
+    """
+    return load("processing_codes").get("directions", {})
 
 
 def fx_rates() -> dict[str, float]:
@@ -74,6 +91,32 @@ def trap_pairs() -> list[dict]:
         evidence that settled it.
     """
     return load("trap_pairs")["never_merge"]
+
+
+def internal_descriptors() -> dict[str, str]:
+    """
+    The values that occupy ``MERCHANT_NAME`` without naming a counterparty --
+    settlement, standing orders and transfers between the customer's own
+    accounts. They are kept out of the merchant master deliberately: a
+    descriptor added there would put 41293 rows of internal traffic into
+    merchant-level totals, and CARD SETTLEMENT would be the largest merchant
+    in the file by a factor of seven.
+
+    :returns: Descriptor to the kind of movement it describes.
+    """
+    return load("internal_descriptors")["descriptors"]
+
+
+def internal_movement_labels() -> dict[str, str]:
+    """
+    The kind token is what the descriptor file keys on; it is not what belongs
+    on a sheet. ``STANDING_ORDER`` reads as an identifier beside CARREFOUR,
+    and the underscore is there because the key needed one, not because the
+    movement is called that.
+
+    :returns: Kind of movement to the name written for it, in words.
+    """
+    return load("internal_descriptors")["labels"]
 
 
 def date_formats() -> tuple[list[dict], set[str]]:

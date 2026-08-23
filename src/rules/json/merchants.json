@@ -136,8 +136,10 @@
     "AMERICAN UNIVERSITY": {
       "aliases": [
         "AMERICAN U",
-        "AMERICAN UNIV"
+        "AMERICAN UNIV",
+        "AMERICAN UNIVERSITY BEIRUT"
       ],
+      "note": "geography dropped, as elsewhere; MERCHANT_COUNTRY carries it",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
@@ -185,6 +187,11 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "AUB PAYROLL": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "AUDIBLE": {
       "aliases": [
         "ADBL"
@@ -226,6 +233,16 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "AXA MIDDLE EAST": {
+      "mcc": "6300",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
+    "BANK AUDI": {
+      "mcc": "6011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "BANKERS ASSURANCE": {
       "aliases": [
         "BANKERS A",
@@ -241,6 +258,11 @@
       ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "BANQUE LIBANO": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "BARBAR": {
       "aliases": [
@@ -360,6 +382,11 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "BOSCH SERVICE": {
+      "mcc": "7538",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "BOU KHALIL MARKET": {
       "aliases": [
         "BOU KHALIL MKT"
@@ -399,6 +426,11 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "BUTEC HOLDING": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "BYBLOS BANK ATM": {
       "aliases": [
         "BYBLOS BA",
@@ -430,6 +462,8 @@
         "CARREFOUR EGYPT",
         "CARREFOUR F",
         "CARREFOUR FRANCE",
+        "CARREFOUR LEBANON",
+        "CARREFOUR MAROC",
         "CARREFOUR UAE",
         "CARREFOURUAE",
         "CRRFR EGYPT",
@@ -446,6 +480,11 @@
       ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "CHARCUTIER AOUN": {
+      "mcc": "5411",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "CHASE BANK ATM": {
       "aliases": [
@@ -476,6 +515,11 @@
       ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "CMA CGM LEBANON": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "COINBASE": {
       "aliases": [
@@ -550,6 +594,7 @@
     },
     "DHL EXPRESS": {
       "aliases": [
+        "DHL",
         "DHL E"
       ],
       "mcc": "4215",
@@ -635,10 +680,17 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "EM SHERIF": {
+      "mcc": "5812",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "EMIRATES AIRLINE": {
       "aliases": [
+        "EMIRATES",
         "EMIRATES A"
       ],
+      "note": "bare EMIRATES is 4511 in AE, which is this and not either of the two 6011 Emirates ATMs",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
@@ -765,6 +817,11 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "FRANSABANK": {
+      "mcc": "6011",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "GARAGE ELIAS AUTO": {
       "aliases": [
         "GARAGE EA",
@@ -789,6 +846,11 @@
       "mcc": "7372",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "GOLDS GYM": {
+      "mcc": "7997",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "GOOGLE ADS": {
       "aliases": [
@@ -875,10 +937,20 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "HYPCO": {
+      "mcc": "5541",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "IKEA": {
       "mcc": "5712",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "INDEVCO": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "INTERACTIVE BROKERS": {
       "aliases": [
@@ -891,6 +963,9 @@
     },
     "IPT SAIDA": {
       "mcc": "5541",
+      "aliases": [
+        "IPT"
+      ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
@@ -927,6 +1002,7 @@
     "JUMIA": {
       "aliases": [
         "JM NIGERIA",
+        "JUMIA MAROC",
         "JUMIA N"
       ],
       "added_by": "Joseph Am-Makhlouf",
@@ -941,6 +1017,9 @@
     },
     "KFC": {
       "mcc": "5814",
+      "aliases": [
+        "KFC LEBANON"
+      ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
@@ -987,6 +1066,9 @@
       "added": "2026-08-17"
     },
     "LAU BYBLOS": {
+      "aliases": [
+        "LAU"
+      ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
@@ -994,6 +1076,18 @@
       "mcc": "7011",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "LEILA MINI MARKET": {
+      "mcc": "5411",
+      "note": "kept apart from LEILA RESTAURANT: 5411 grocery against 5812 restaurant",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
+    "LEILA RESTAURANT": {
+      "mcc": "5812",
+      "note": "see LEILA MINI MARKET - do not merge",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "LIBRAIRIE ANTOINE": {
       "aliases": [
@@ -1060,6 +1154,16 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "MALAK AL TAWOUK": {
+      "mcc": "5814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
+    "MALIA GROUP": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "MALIK BOOKSHOP": {
       "aliases": [
         "MALIK BKSHP"
@@ -1067,6 +1171,23 @@
       "mcc": "5942",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "MARHABA MARKET": {
+      "mcc": "5411",
+      "note": "see MARHABA TRADING - do not merge",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
+    "MARHABA TRADING": {
+      "mcc": "5300",
+      "note": "kept apart from MARHABA MARKET: 5300 wholesale against 5411 grocery, so the shared first word is not evidence of one merchant",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
+    "MAROC TELECOM": {
+      "mcc": "4814",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "MARRIOTT HOTELS": {
       "aliases": [
@@ -1135,6 +1256,11 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "METRO CASH CARRY": {
+      "mcc": "5300",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "MEZYAN": {
       "mcc": "5812",
       "note": "restaurant (5812). Distinct merchant from MEZYANE (5691 clothing) despite the one-letter difference",
@@ -1154,6 +1280,11 @@
       "note": "kept separate from MICROSOFT - a named product line, not a spelling variant",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "MIDDLE EAST AIRLINES": {
+      "note": "no curated MCC: 4511 on its ticket sales and 6012 on the salary credits it pays, and one assertion would overwrite the other",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "MIGROS": {
       "aliases": [
@@ -1199,6 +1330,19 @@
       "mcc": "4111",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "MUREX": {
+      "aliases": [
+        "MUREX SAL"
+      ],
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
+    "MURR TELEVISION": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "NETFLIX": {
       "aliases": [
@@ -1314,6 +1458,11 @@
       ],
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "PHARMACIE CENTRALE": {
+      "mcc": "5912",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "PHARMACIE DU LIBAN": {
       "aliases": [
@@ -1435,6 +1584,11 @@
       "mcc": "5812",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
+    },
+    "ROYAL AIR MAROC": {
+      "mcc": "4511",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
     },
     "ROYAL JORDANIAN": {
       "aliases": [
@@ -1590,8 +1744,14 @@
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
+    "SODETEL": {
+      "note": "employer, not an internal movement: every row is SALARY_CREDIT or BONUS_CREDIT with zero purchases, which is what separates these from the descriptors they resemble. No curated MCC -- the source codes them 6012, which the workbook's MCC reference does not define",
+      "added_by": "Joseph Am-Makhlouf",
+      "added": "2026-08-23"
+    },
     "SPINNEYS": {
       "aliases": [
+        "SPINNEYS DBAYEH",
         "SPNNYS"
       ],
       "mcc": "5411",
@@ -1784,9 +1944,11 @@
     },
     "UBER TRIP": {
       "aliases": [
+        "UBER",
         "UBER T",
         "UBERTRIP"
       ],
+      "note": "bare UBER is 4121, which is the ride and not UBER EATS at 4215",
       "added_by": "Joseph Am-Makhlouf",
       "added": "2026-08-17"
     },
@@ -1822,6 +1984,7 @@
     },
     "USJ BEIRUT": {
       "aliases": [
+        "USJ",
         "USJ B",
         "USJBEIRUT"
       ],

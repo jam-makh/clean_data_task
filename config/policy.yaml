@@ -47,6 +47,18 @@ missing:
   # Raise this only for a source where auth codes are legitimately reused.
   auth_repeat_threshold: 2
 
+balance:
+  # Absolute tolerance, in the account's own currency, for deciding that a
+  # stated running balance accounts for the transactions leading up to it.
+  #
+  # Absolute rather than relative because this is not a measurement with
+  # error -- a balance either accounts for its transactions or it does not,
+  # and the only slack needed is the half-cent that repeated addition of
+  # 2-decimal figures can leave behind. A relative tolerance would scale with
+  # the balance and quietly accept a 60,000 LBP discrepancy on a large
+  # account, which is the exact failure this check exists to catch.
+  reconcile_tolerance: 0.01
+
 duplicates:
   # Tried in order; the first list whose columns are all present wins. These
   # also define the derived upsert key in Stage 2 -- a row identified as a
@@ -55,3 +67,23 @@ duplicates:
   business_keys:
     - [ACCOUNT_ID, TXN_DATE_TIME, TXN_AMOUNT, MERCHANT_NAME]
     - [ACCOUNT_ID, TXN_DATE_TIME, TXN_AMOUNT]
+
+output:
+  # How a timestamp is spelled on the sheet. A judgement, not a fact: the
+  # source writes dates six ways and none of them is the right one for a
+  # reader, so this is the house convention rather than anything the data
+  # dictates. Day-first throughout, because that is what the audience for
+  # these workbooks reads; a reader in another region would set it otherwise,
+  # and that is exactly why the value is here and not in the writer.
+  #
+  # Three formats, not one, because a timestamp is rendered at the precision
+  # it was actually observed at. Writing every row to the second would print
+  # 00:00:00 on the rows that never carried a time of day, which is the
+  # fabrication the precision column exists to prevent. The renderer picks by
+  # that column, so these three must stay in step with its three levels.
+  #
+  # Validated by being used at load: a bad directive raises here rather than
+  # on the last line of a long run.
+  datetime: "%d-%m-%Y %H:%M:%S"   # SECOND precision
+  minute: "%d-%m-%Y %H:%M"        # MINUTE precision -- seconds never recorded
+  date: "%d-%m-%Y"                # DAY precision, and every date-only column

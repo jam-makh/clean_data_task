@@ -105,7 +105,23 @@ def test_cleaned_sheets_carry_no_superseded_raw_columns(
         assert not columns & (out(SUPERSEDED) - out(RENAMED.values())), sheet
         # Every superseded raw column has its replacement on the sheet, except
         # where the replacement is itself a working column feeding another.
-        assert out(set(SUPERSEDED.values()) - set(INTERNAL)) <= columns, sheet
+        #
+        # Only the pairs this source actually has: SUPERSEDED covers every
+        # profile at once, and the macro trio belongs to a file this fixture
+        # is not. A pair whose raw column was never read cannot have lost
+        # anything, which is the only thing this assertion protects.
+        #
+        # A raw column may name more than one replacement, because the two
+        # profiles spell the cleaned timestamp differently; the one that ran
+        # is the one that has to be present.
+        replacements = set()
+        for raw, clean in SUPERSEDED.items():
+            if raw not in transactions.columns:
+                continue
+            names = {clean} if isinstance(clean, str) else set(clean)
+            present = names & set(cleaned.columns)
+            replacements |= present or names
+        assert out(replacements - set(INTERNAL)) <= columns, sheet
         assert not columns & out(INTERNAL), sheet
 
     # The raw values are one sheet away, not gone.

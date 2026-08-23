@@ -1,0 +1,121 @@
+"""Profiles and the CLI: the same pipeline against a file it has not seen."""
+
+import pytest
+
+import main as entry
+from src.config import runtime
+from src.config.errors import ConfigError
+from src.pipeline import STEP_REGISTRY, steps_for
+
+
+def config():
+    """:returns: The shipped runtime config."""
+    return runtime.load()
+
+
+# --- the registry -----------------------------------------------------------
+
+def test_every_configured_step_exists():
+    """
+    A typo in a profile must fail at load. Silently skipping a step would
+    produce a plausible-looking output with a whole cleaning concern missing.
+    """
+    for profile in config().profiles:
+        steps_for(profile.steps)
+
+
+def test_an_unknown_step_names_what_is_known():
+    with pytest.raises(KeyError) as caught:
+        steps_for(["timestamps", "nonsense"])
+    assert "nonsense" in str(caught.value)
+    assert "timestamps" in str(caught.value)
+
+
+def test_no_profile_repeats_a_step():
+    """Running a cleaner twice would double-count every metric it logs."""
+    for profile in config().profiles:
+        assert len(set(profile.steps)) == len(profile.steps), profile.name
+
+
+# --- detection --------------------------------------------------------------
+
+def test_the_forecast_source_selects_its_own_profile(forecast):
+    chosen = config().detect(forecast.columns)
+    assert chosen.name == "forecast_balance"
+    assert "timestamps" in chosen.steps and "macro" in chosen.steps
+
+
+def test_the_workbook_selects_its_own_profile(transactions):
+    chosen = config().detect(transactions.columns)
+    assert chosen.name == "transactions_v4"
+    assert "dates" in chosen.steps
+
+
+def test_the_two_profiles_cannot_both_match(forecast, transactions):
+    """
+    Detection is first-match-wins, so overlapping profiles would make the
+    result depend on file order rather than on the data.
+    """
+    settings = config()
+    forecast_profile = settings.profile("forecast_balance")
+    workbook_profile = settings.profile("transactions_v4")
+    assert not workbook_profile.matches(forecast.columns)
+    assert not forecast_profile.matches(transactions.columns)
+
+
+def test_an_undescribed_source_is_an_error_not_a_guess():
+    """
+    The two profiles parse dates in ways that are silently wrong for each
+    other's files, so defaulting to either would corrupt months without
+    raising. Refusing names what was wanted instead.
+    """
+    with pytest.raises(ConfigError) as caught:
+        config().detect(["SOME_COLUMN", "ANOTHER"])
+    assert "TXN_SEQ" in str(caught.value)
+    assert "--profile" in str(caught.value)
+
+
+def test_an_unknown_profile_name_lists_the_real_ones():
+    with pytest.raises(ConfigError) as caught:
+        config().profile("does_not_exist")
+    assert "forecast_balance" in str(caught.value)
+
+
+# --- the command line -------------------------------------------------------
+
+def test_source_defaults_to_the_configured_path():
+    args = entry.build_parser().parse_args([])
+    assert args.source is None and args.profile is None
+
+
+def test_the_source_is_positional():
+    args = entry.build_parser().parse_args(["data/raw/some_file.csv"])
+    assert args.source == "data/raw/some_file.csv"
+
+
+def test_the_profile_can_be_forced():
+    args = entry.build_parser().parse_args(["f.csv", "--profile", "forecast_balance"])
+    assert args.profile == "forecast_balance"
+
+
+def test_an_unconfigured_profile_is_rejected_by_the_parser():
+    """argparse refuses the value rather than the pipeline discovering it."""
+    with pytest.raises(SystemExit):
+        entry.build_parser().parse_args(["f.csv", "--profile", "made_up"])
+
+
+def test_a_missing_source_exits_two_not_one(capsys):
+    """
+    Distinguished on purpose: retrying a file that has not landed yet is
+    reasonable, retrying a malformed profile is not.
+    """
+    assert entry.main(["data/raw/definitely_not_here.csv"]) == 2
+    assert "not found" in capsys.readouterr().err.lower()
+
+
+def test_dry_run_writes_nothing(tmp_path, forecast):
+    """A run that reports without producing a file is how you check a profile."""
+    source = tmp_path / "sample.csv"
+    forecast.head(200).to_csv(source, index=False)
+    assert entry.main([str(source), "--dry-run"]) == 0
+    assert not list(tmp_path.glob("*.xlsx"))

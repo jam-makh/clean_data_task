@@ -1,5 +1,5 @@
 """
-Runtime wiring: where the pipeline reads from and writes to.
+Runtime wiring: where the pipeline reads from, writes to, and which steps run.
 
 Deliberately thin. This holds the settings that say *where* work happens,
 which is a different kind of thing from the policy that says *what* the
@@ -37,10 +37,75 @@ class Paths:
 
 
 @dataclass(frozen=True)
+class Profile:
+    """
+    One kind of source file: how to recognise it, and what to run on it.
+
+    :param name: The name the profile is configured and requested under.
+    :param detect: Columns that must all be present for a file to match.
+    :param steps: Step names, in run order.
+    """
+
+    name: str
+    detect: tuple[str, ...]
+    steps: tuple[str, ...]
+
+    def matches(self, columns) -> bool:
+        """
+        :param columns: The source's column names.
+        :returns: Whether every detection column is present. All of them, not
+            any: a single shared column name is a coincidence, and the whole
+            point of detection is that it cannot fire on the wrong file.
+        """
+        return set(self.detect).issubset(set(columns))
+
+
+@dataclass(frozen=True)
 class Runtime:
     """The runtime configuration, validated."""
 
     paths: Paths
+    profiles: tuple[Profile, ...] = ()
+
+    def profile(self, name: str) -> Profile:
+        """
+        :param name: A configured profile name.
+        :returns: That profile.
+        :raises ConfigError: If no profile has that name, listing the ones
+            that do -- a typo must say what was available, not just fail.
+        """
+        for candidate in self.profiles:
+            if candidate.name == name:
+                return candidate
+        raise ConfigError(
+            f"unknown profile {name!r}; configured: "
+            f"{', '.join(p.name for p in self.profiles) or 'none'}"
+        )
+
+    def detect(self, columns) -> Profile:
+        """
+        Picks the profile whose detection columns the source carries.
+
+        First match wins, so the more specific profile is listed first in the
+        file. A source matching none of them is an error rather than a
+        default: the two profiles parse dates in ways that are silently wrong
+        for each other's files, and a wrong month raises nothing at all.
+
+        :param columns: The source's column names.
+        :returns: The first profile that matches.
+        :raises ConfigError: If none matches, naming what was looked for and
+            how to override the decision.
+        """
+        for candidate in self.profiles:
+            if candidate.matches(columns):
+                return candidate
+        wanted = "; ".join(
+            f"{p.name} needs [{', '.join(p.detect)}]" for p in self.profiles
+        )
+        raise ConfigError(
+            f"no profile matches this source. Looked for: {wanted or 'none'}. "
+            f"Pass --profile NAME to choose one explicitly."
+        )
 
 
 def parse(data: dict, path: Path = DEFAULT_PATH) -> Runtime:
@@ -73,8 +138,60 @@ def parse(data: dict, path: Path = DEFAULT_PATH) -> Runtime:
     return Runtime(
         paths=Paths(
             source=Path(paths["source"]), output=Path(paths["output"])
-        )
+        ),
+        profiles=_profiles(data.get("profiles"), path),
     )
+
+
+def _profiles(section, path: Path) -> tuple[Profile, ...]:
+    """
+    :param section: The ``profiles`` mapping, or None when absent.
+    :returns: The profiles in file order, which is the order detection tries
+        them in -- so the mapping's order is data, not presentation.
+    :raises ConfigError: On any malformed entry.
+    """
+    if section is None:
+        return ()
+    if not isinstance(section, dict) or not section:
+        raise ConfigError(
+            f"{path}: 'profiles' must be a non-empty mapping, got "
+            f"{type(section).__name__}"
+        )
+
+    parsed = []
+    for name, body in section.items():
+        where = f"profiles.{name}"
+        if not isinstance(body, dict):
+            raise ConfigError(f"{path}: {where} must be a mapping")
+        parsed.append(
+            Profile(
+                name=str(name),
+                detect=_names(body, "detect", where, path),
+                steps=_names(body, "steps", where, path),
+            )
+        )
+    return tuple(parsed)
+
+
+def _names(body: dict, key: str, where: str, path: Path) -> tuple[str, ...]:
+    """
+    :returns: The list at ``where.key`` as a tuple of strings.
+    :raises ConfigError: If absent, empty, or holding a non-string.
+    """
+    if key not in body:
+        raise ConfigError(f"{path}: missing required key {where}.{key}")
+    value = body[key]
+    if not isinstance(value, list) or not value:
+        raise ConfigError(
+            f"{path}: {where}.{key} must be a non-empty list, got {value!r}"
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise ConfigError(
+                f"{path}: {where}.{key} entries must be strings, "
+                f"got {item!r}"
+            )
+    return tuple(value)
 
 
 @lru_cache(maxsize=None)

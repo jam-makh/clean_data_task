@@ -26,7 +26,12 @@ def test_auth_code_repeats_are_invalid(report):
 
 
 def test_settle_status_uses_a_column_not_a_placeholder_string(report):
-    """A literal "unknown" in a date column would force it to text."""
+    """
+    The sheet writes UNKNOWN into settle_date_cleaned, but only on the way
+    out. Inside the pipeline the column stays datetime64 with a true null:
+    a literal string here would force it to text and break every sort and
+    date calculation done after this step.
+    """
     frame = pd.DataFrame(
         {
             "TXN_DATE_TIME": [
@@ -40,7 +45,7 @@ def test_settle_status_uses_a_column_not_a_placeholder_string(report):
     df = MissingValueHandler(report).apply(dated)
 
     assert list(df["SETTLE_DATE_STATUS"]) == [
-        "OBSERVED", "UNKNOWN", "ANOMALOUS",
+        "OBSERVED", "MISSING", "ANOMALOUS",
     ]
     assert pd.isna(df["SETTLE_DATE_CLEANED"].iat[1])
     assert pd.api.types.is_datetime64_any_dtype(df["SETTLE_DATE_CLEANED"])
@@ -51,6 +56,6 @@ def test_real_file_counts(transactions, report):
         DateNormalizer(report).apply(transactions)
     )
     status = df["SETTLE_DATE_STATUS"].astype(str)
-    assert (status == "UNKNOWN").sum() == 14
+    assert (status == "MISSING").sum() == 14
     assert (status == "ANOMALOUS").sum() == 6
     assert (~df["HAS_TERMINAL"]).sum() == 1051

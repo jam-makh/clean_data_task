@@ -5,20 +5,29 @@ import pytest
 
 from src.cleaners.amounts import SIGN_FLAG, AmountNormalizer
 from src.cleaners.codes import REFUND_LABEL
+from src.rules import loader
 
 parse = AmountNormalizer.parse
 
 
 def signed(rows, report):
     """
+    The sign is taken from the direction the row's processing CODE declares,
+    so the code is what the frame has to carry. These cases are written in
+    terms of the label a reader recognises, and the code is looked back up
+    from the same rule file that maps the two -- naming both by hand would let
+    a test assert a pairing the rule file does not actually make.
+
     :param rows: (raw amount, processing type label) pairs.
     :returns: The frame after parsing and sign restoration.
     """
+    by_label = {label: code for code, label in loader.processing_codes().items()}
     return AmountNormalizer(report).apply(
         pd.DataFrame(
             {
                 "TXN_AMOUNT": [r for r, _ in rows],
                 "TXN_CCY": ["USD"] * len(rows),
+                "PROCESSING_CODE_CLEANED": [by_label[t] for _, t in rows],
                 "PROCESSING_TYPE_CLEANED": [t for _, t in rows],
             }
         )

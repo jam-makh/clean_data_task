@@ -14,6 +14,13 @@ UNKNOWN = "UNKNOWN"
 # source did not state: a marker like INTERNAL or INTERNET is not a missing
 # city, it is a positive statement that there was no merchant location, and
 # collapsing the two would lose 24614 rows worth of that distinction.
+#
+# A working column rather than a presented one. It classifies
+# MERCHANT_CITY_CLEANED, which sits beside it already spelling the marker
+# out, and the reason a row carries no place -- that it is the bank moving
+# the customer's own money -- is stated on MERCHANT_TYPE, where it is a fact
+# about the counterparty rather than a gap in the geography. The counts stay
+# in cleaning_report.
 LOCATION_TYPES = ["PHYSICAL", "ECOMMERCE", "INTERNAL", "UNKNOWN"]
 
 

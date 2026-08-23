@@ -5,8 +5,8 @@ import re
 import pandas as pd
 
 from src.cleaners.base import BaseCleaner
-from src.cleaners.codes import REFUND_LABEL
 from src.rules import loader
+from src.rules.loader import CREDIT
 
 AMOUNT_COLUMNS = {"TXN_AMOUNT": "TXN_AMOUNT_CLEANED"}
 
@@ -25,9 +25,14 @@ class AmountNormalizer(BaseCleaner):
     Where a single comma is genuinely ambiguous, the currency decides.
 
     Then it restores the sign, which the source loses on amounts it wrote out
-    as text: 13 rows arrive as a bare ``409.34`` on a purchase, with no minus
-    and no accounting parentheses to read one from. The transaction type says
-    which way the money moved, so the sign is taken from there.
+    as text. It is lost two ways, and both files show one: 13 rows of the v4
+    workbook arrive as a bare ``409.34`` on a purchase, with no minus to read
+    one from, and 45 rows of the forecast extract carry accounting parentheses
+    on credit codes whose own ``BILLING_AMOUNT`` is positive.
+
+    The transaction type says which way the money moved, so the sign is taken
+    from there -- from the direction ``processing_codes.json`` declares for
+    the code, never from a rule about which labels count as money coming back.
     """
 
     name = "amounts"
@@ -68,31 +73,51 @@ class AmountNormalizer(BaseCleaner):
 
     def restore_signs(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Signs every amount from its transaction type: a refund is money coming
-        back and is positive, everything else is money going out and is
-        negative.
+        Signs every amount from the direction its processing code declares:
+        CREDIT is money arriving and is positive, DEBIT is money leaving and
+        is negative. Which code is which is the rule file's statement, never
+        this module's.
 
-        The magnitude is never touched -- only the sign is taken from the type,
-        because the digits are what the source got right and the sign is what
-        it dropped. Rows already carrying the correct sign are left alone and
-        not counted.
+        The rule this replaced -- "a refund is the only credit, everything
+        else is a debit" -- held for the three codes the v4 workbook uses and
+        mis-signed every credit in the forecast extract, where salary,
+        transfer in, interest, settlement, card payment and bonus are all
+        money arriving.
+
+        The magnitude is never touched -- only the sign is taken from the
+        direction, because the digits are what the source got right and the
+        sign is what it dropped. Rows already carrying the correct sign are
+        left alone and not counted.
 
         Each corrected row is flagged as well as counted: the value on it now
         differs from the one in ``raw_transactions``, and that has to be
         traceable to the transaction rather than only to a total in the report.
 
-        :param df: Frame with amounts parsed and the processing type resolved.
-        :returns: The frame with every amount signed by its type.
+        :param df: Frame with amounts parsed and the processing code resolved.
+        :returns: The frame with every amount signed by its declared direction.
         """
-        if "PROCESSING_TYPE_CLEANED" not in df.columns:
+        if "PROCESSING_CODE_CLEANED" not in df.columns:
             return df
 
-        refund = df["PROCESSING_TYPE_CLEANED"].astype(str) == REFUND_LABEL
+        # Only the codes the rule file actually declares. A direction is what
+        # authorises rewriting the number, so a code nobody has classified
+        # leaves its amount exactly as the source wrote it: an unknown code is
+        # a gap in the table, and inventing a sign for it would corrupt the
+        # one field this step is trusted not to invent.
+        directions = loader.processing_code_directions()
+        declared = df["PROCESSING_CODE_CLEANED"].map(self.text).map(directions)
+        credit = declared.eq(CREDIT)
+        known = declared.notna()
+        self.log("sign.code_without_direction", int((~known).sum()))
+
         for target in AMOUNT_COLUMNS.values():
             if target not in df.columns:
                 continue
-            signed = df[target].abs().where(refund, -df[target].abs())
-            wrong = df[target].notna() & (signed != df[target])
+            magnitude = df[target].abs()
+            signed = magnitude.where(credit, -magnitude).where(
+                known, df[target]
+            )
+            wrong = df[target].notna() & known & (signed != df[target])
             df[target] = signed
 
             if "VALIDATION_FLAGS" not in df.columns:

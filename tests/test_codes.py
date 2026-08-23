@@ -148,21 +148,25 @@ def test_no_alias_is_claimed_by_two_merchants():
     loader.merchant_aliases()  # raises ValueError on a collision
 
 
-def test_no_master_entry_is_stale(transactions):
+def test_no_master_entry_is_stale(transactions, forecast):
     """
     Keys match the cleaned merchant name, which shifts as MerchantCleaner
     improves. A dead entry must fail here rather than silently do nothing.
+
+    Both sources count. The master serves the workbook and the forecast
+    extract, and an entry the workbook happens not to use is not thereby dead.
+    Liveness is asked of the resolver rather than of exact membership, because
+    the resolver is how a name actually reaches an entry: the forecast source
+    truncates, and HOTEL DIEU DE FRANCE is only ever reached by a prefix.
     """
     processors = loader.processors()
+    resolve = MerchantCleaner._resolver(loader.merchant_aliases())
     live = {
-        MerchantCleaner.clean_one(v, processors)[0]
-        for v in transactions["MERCHANT_NAME"]
+        resolve(MerchantCleaner.clean_one(v, processors)[0])
+        for source in (transactions, forecast)
+        for v in source["MERCHANT_NAME"]
     }
-    dead = [
-        name
-        for name, entry in loader.merchants().items()
-        if name not in live and not set(entry.get("aliases", [])) & live
-    ]
+    dead = sorted(set(loader.merchants()) - live)
     assert not dead, f"master entries matching no merchant: {dead}"
 
 
