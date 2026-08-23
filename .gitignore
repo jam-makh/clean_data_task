@@ -1,7 +1,10 @@
-data
+data/
 __pycache__/
 *.egg-info/
 .pytest_cache/
 *.pyc
 .venv/
 notes.md
+.env
+Stage2_Reproducible_Pipeline.pdf
+jars/

@@ -43,6 +43,7 @@ DATE_ONLY = {"settle_date_cleaned"}
 UNKNOWN_TEXT = "UNKNOWN"
 UNKNOWN_WHEN_MISSING = {
     "settle_date_cleaned", "running_balance", "running_balance_cleaned",
+    "running_balance_adjusted",
 }
 
 # A timestamp is rendered to the precision it was actually observed at, so the

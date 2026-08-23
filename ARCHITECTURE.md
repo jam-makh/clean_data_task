@@ -327,6 +327,44 @@ and `running_balance_status` beside it names which decision — `CONTRADICTED`,
 `UNVERIFIED` or `UNKNOWN`. Both stay real nulls inside the pipeline; only the
 rendered copy carries the word.
 
+### Two balance columns, and why they are not one
+
+`running_balance_cleaned` states a balance only where the arithmetic proves
+one, which leaves 80,808 rows blank. `running_balance_adjusted` answers a
+different, weaker question — *what would the balance be if this account's own
+transactions were the only thing that moved it?* — and answers it wherever
+there is a trusted balance to count from.
+
+They are separate columns because they are separate claims. The first is
+evidence; the second is arithmetic. Merging them would let a projected figure
+be read as a proven one, which is the entire failure mode the balance step
+exists to prevent.
+
+Each row counts from the **nearest** trusted balance, not one anchor per
+account: anchoring each account at its first verified row reproduces the
+surviving later balances 43.6% of the time, and re-anchoring at the nearest one
+raises that to 67.9%. Rows before an account's first trusted balance count
+backwards from it — the same arithmetic with the sign reversed. Neither
+direction crosses an unreadable amount, because a running total with a hole in
+it is short by an amount nobody can name.
+
+`running_balance_adjusted_status` says how far each value can be trusted:
+
+| Status | Meaning |
+|---|---|
+| `VERIFIED` | the row already has a proven balance; this column repeats it |
+| `CONFIRMED` | projected, and a later trusted balance is reached exactly |
+| `CONTRADICTED` | projected, and a later trusted balance is **not** reached — the file is missing money that moved, and this figure is wrong by that amount |
+| `UNTESTED` | projected, with nothing after it to check against |
+| `NO_ANCHOR` | the account never had a trusted balance; no value |
+
+`CONTRADICTED` is not a defect in the projection. It is the projection working
+correctly and reporting that the transaction list is incomplete: on the
+accounts that can be checked, counting transactions forward misses the real
+balance on 92 of 153. The value is still stated, because a reader who asked for
+a balance everywhere should get one — but it is labelled, so nobody has to
+discover the problem by being wrong about it later.
+
 ### Auth codes: why any repeat is suspicious
 
 ```

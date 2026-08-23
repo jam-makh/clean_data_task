@@ -10,7 +10,11 @@ that matter most are the ones asserting a refusal.
 import pandas as pd
 import pytest
 
-from src.cleaners.balance import BalanceReconstructor
+from src.cleaners.balance import (
+    ADJUSTED,
+    ADJUSTED_STATUS,
+    BalanceReconstructor,
+)
 from src.utils.report import CleaningReport
 
 
@@ -213,3 +217,112 @@ def test_the_report_names_where_the_source_stops_reconciling(report):
     logged = {m: v for step, m, v in report.entries if step == "balance"}
     assert logged["contradicted.first_seq"] == 3
     assert logged["status[CONTRADICTED]"] == 2
+
+
+# --- the adjusted column ----------------------------------------------------
+#
+# A second balance, stated wherever there is a trusted one to count from. It
+# answers "what would the balance be if only this account's own transactions
+# moved it", which is a weaker claim than the published column makes and is
+# kept in its own column for exactly that reason.
+
+def adjusted(out):
+    return [
+        None if pd.isna(v) else round(float(v), 2) for v in out[ADJUSTED]
+    ]
+
+
+def adjusted_states(out):
+    return list(out[ADJUSTED_STATUS].astype(str))
+
+
+def test_the_adjusted_column_fills_rows_the_published_one_withholds(report):
+    """
+    Nothing follows the last stated balance, so the published column refuses
+    every row after it. The adjusted column carries on counting.
+    """
+    out = run(frame([100, 50, 25, 30], [100, 150, None, None]), report)
+    assert values(out) == [100.0, 150.0, None, None]
+    assert adjusted(out) == [100.0, 150.0, 175.0, 205.0]
+    assert adjusted_states(out) == [
+        "VERIFIED", "VERIFIED", "UNTESTED", "UNTESTED",
+    ]
+
+
+def test_a_row_the_published_column_already_filled_is_not_a_projection(report):
+    """
+    Where the bracket closes the published column derives the value itself,
+    so the adjusted column has nothing to add and says so. VERIFIED wins over
+    every other state for exactly this reason: a row carrying a proven
+    balance is not a projection, whatever the rows around it are doing.
+    """
+    out = run(frame([100, 50, 25], [100, None, 175]), report)
+    assert states(out) == ["OBSERVED", "DERIVED", "OBSERVED"]
+    assert adjusted(out) == [100.0, 150.0, 175.0]
+    assert adjusted_states(out) == ["VERIFIED"] * 3
+
+
+def test_a_projection_a_later_balance_refutes_still_states_a_value(report):
+    """
+    The whole point of the second column, and the case the real source is
+    full of. Two pairs of stated balances each check out against their own
+    neighbour, but 1000 is unreachable from 150 by the transactions between
+    them -- money moved that the file does not record as a transaction. The
+    published column withholds the rows in between; this one states what the
+    arithmetic gives and marks it as refuted, so the number is available and
+    nobody can mistake it for a verified one.
+    """
+    out = run(
+        frame([100, 50, 25, 30, 40, 20], [100, 150, None, None, 1000, 1020]),
+        report,
+    )
+    assert values(out)[2:4] == [None, None]
+    assert adjusted(out)[2:4] == [175.0, 205.0]
+    assert adjusted_states(out)[2:4] == ["CONTRADICTED", "CONTRADICTED"]
+
+
+def test_rows_before_the_first_trusted_balance_count_backwards(report):
+    """
+    The same arithmetic with the sign reversed. The published column calls
+    these UNKNOWN because nothing precedes them; the adjusted column reaches
+    them from the balance that follows.
+    """
+    out = run(frame([40, 60, 30], [None, 100, 130]), report)
+    assert states(out)[0] == "UNKNOWN"
+    assert adjusted(out) == [40.0, 100.0, 130.0]
+
+
+def test_an_account_with_no_trusted_balance_gets_no_projection(report):
+    """
+    A projection needs somewhere to count from. A lone stated balance is
+    never verified, so it cannot anchor one, and inventing an origin of zero
+    would state a balance the source never supported.
+    """
+    out = run(frame([100, 50, 25], [100, None, None]), report)
+    assert states(out) == ["UNVERIFIED"] * 3
+    assert adjusted(out) == [None, None, None]
+    assert adjusted_states(out) == ["NO_ANCHOR"] * 3
+
+
+def test_the_projection_never_crosses_an_unreadable_amount(report):
+    """
+    An unreadable amount is a hole in the running total. Counting across it
+    would produce a figure short by an amount nobody can name, which is worse
+    than leaving the row unanswered.
+    """
+    out = run(frame([100, 50, None, 25], [100, 150, None, None]), report)
+    assert adjusted(out) == [100.0, 150.0, None, None]
+    assert adjusted_states(out)[2:] == ["NO_ANCHOR", "NO_ANCHOR"]
+
+
+def test_the_adjusted_column_never_uses_billing_amount(report):
+    """
+    The same guarantee the published column carries, and for the same reason:
+    BILLING_AMOUNT is USD on every row whatever the account transacts in, so
+    it cannot move a balance denominated in anything else.
+    """
+    df = frame([100, 50, 25], [100, 150, None])
+    df["BILLING_AMOUNT"] = [1.0, 2.0, 3.0]
+    df["TXN_CCY"] = ["LBP"] * 3
+    out = run(df, report)
+    assert adjusted(out) == [100.0, 150.0, 175.0]

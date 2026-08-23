@@ -142,6 +142,14 @@ PRESENTATION_ORDER = [
     "RUNNING_BALANCE",
     "RUNNING_BALANCE_CLEANED",
     "RUNNING_BALANCE_STATUS",
+    # The second balance, and never merged into the first. The cleaned column
+    # states a balance only where the arithmetic proves one; this one states
+    # what the balance would be if the account's own transactions were the
+    # only thing that moved it, which is a different claim and a weaker one.
+    # Its own status column says how far it can be trusted per row, and the
+    # two sit adjacent so neither can be read without the other.
+    "RUNNING_BALANCE_ADJUSTED",
+    "RUNNING_BALANCE_ADJUSTED_STATUS",
     # Confidence sits beside the merchant name rather than with the other MCC
     # columns: it is the first thing a reader needs after knowing who the
     # merchant is, and the code itself is only meaningful once it is trusted.

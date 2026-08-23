@@ -6,3 +6,26 @@ openpyxl==3.1.5
 # every value there carries an argument for itself, and a format without
 # comments would strand the reasoning in a _comment key or lose it.
 PyYAML==6.0.2
+
+# --- Stage 2: distributed processing -------------------------------------
+# The cleaning transformations run as Spark DataFrame operations. PySpark is
+# only the Python half: it drives a JVM, which is why JAVA_HOME and (on
+# Windows) HADOOP_HOME have to be set on the machine before any of this runs.
+pyspark==4.2.0
+
+# Arrow is what makes the pandas <-> Spark boundary cheap: pandas_udf batches
+# and toPandas() both move columnar buffers instead of pickling row by row.
+# The Stage 2 parity harness crosses that boundary on every test, so this is
+# a runtime dependency rather than a nicety.
+pyarrow==25.0.1
+
+# --- Stage 2: persistence and events -------------------------------------
+# The Python side of Postgres: migrations, the ON CONFLICT upsert, and the
+# consumer's dedupe table. Spark's bulk write does NOT go through this -- it
+# runs inside the JVM and needs the JDBC jar in jars/ instead. Two drivers
+# for two runtimes, speaking the same wire protocol.
+psycopg2-binary==2.9.12
+
+# Kafka producer and consumer. librdkafka underneath, so it tracks the
+# broker's protocol rather than reimplementing it in Python.
+confluent-kafka==2.15.0

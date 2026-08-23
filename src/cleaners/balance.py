@@ -43,9 +43,31 @@ from src.cleaners.base import BaseCleaner
 #               from. Withheld.
 STATUSES = ["OBSERVED", "DERIVED", "CONTRADICTED", "UNVERIFIED", "UNKNOWN"]
 
+# What is known about each row's ADJUSTED balance -- the second column, which
+# states a balance on every row it can rather than only where one is proven.
+#
+# VERIFIED      the row already has a published balance; the adjusted column
+#               repeats it and adds nothing.
+# CONFIRMED     projected, and a later trusted balance in the account is
+#               reached exactly. The projection is not merely arithmetic here,
+#               it is checked.
+# CONTRADICTED  projected, and a later trusted balance is NOT reached. The
+#               value is still stated, because this column's job is to state
+#               one -- but the file is missing money that moved, and this
+#               figure is wrong by however much.
+# UNTESTED      projected, with no trusted balance after it to check against.
+#               Arithmetically sound, evidentially unsupported.
+# NO_ANCHOR     the account never had a trusted balance, so there is nothing
+#               to project from. No value.
+ADJUSTED_STATUSES = [
+    "VERIFIED", "CONFIRMED", "CONTRADICTED", "UNTESTED", "NO_ANCHOR",
+]
+
 SOURCE = "RUNNING_BALANCE"
 CLEANED = "RUNNING_BALANCE_CLEANED"
 STATUS = "RUNNING_BALANCE_STATUS"
+ADJUSTED = "RUNNING_BALANCE_ADJUSTED"
+ADJUSTED_STATUS = "RUNNING_BALANCE_ADJUSTED_STATUS"
 
 
 class BalanceReconstructor(BaseCleaner):
@@ -118,8 +140,83 @@ class BalanceReconstructor(BaseCleaner):
         df[STATUS] = pd.Categorical(
             status.reindex(df.index), categories=STATUSES
         )
+
+        adjusted, adjusted_status = self._adjust(
+            account, offset, cumulative, chain, value
+        )
+        df[ADJUSTED] = adjusted.reindex(df.index)
+        df[ADJUSTED_STATUS] = pd.Categorical(
+            adjusted_status.reindex(df.index), categories=ADJUSTED_STATUSES
+        )
+
         self._report(df, ordered, order, account, moves)
         return df
+
+    def _adjust(self, account, offset, cumulative, chain, value):
+        """
+        States a balance on every row it can, moved by the transaction alone.
+
+        The published column withholds a value wherever the arithmetic cannot
+        prove one, which leaves 80808 rows blank. This one answers the other
+        question -- "what would the balance be if the only thing that moved it
+        were this account's own transactions?" -- and answers it everywhere
+        there is a trusted balance to count from.
+
+        The two columns are deliberately not merged. Everything here is
+        arithmetic on ``TXN_AMOUNT_CLEANED``, in the account's own currency,
+        and none of it is evidence: where the source records a transfer that
+        never appears as a transaction row, the projection misses it and every
+        row after it is wrong by that amount, silently and permanently. The
+        status column says which rows that is known to have happened to.
+
+        Each row counts from the *nearest* trusted balance rather than one
+        anchor per account, because drift accumulates with distance: anchoring
+        the whole file at each account's first verified row reproduces the
+        surviving later balances 43.6% of the time, and re-anchoring at the
+        nearest one raises that to 67.9%. Rows before an account's first
+        trusted balance count backwards from it, which is the same arithmetic
+        with the sign reversed.
+
+        :param offset: ``balance - cumulative amount`` at stated rows.
+        :param value: The published balance, null where it was withheld.
+        :returns: (adjusted balance per row, status per row).
+        """
+        tolerance = self.policy.balance.reconcile_tolerance
+
+        # Only rows this pipeline was willing to publish may anchor a
+        # projection. A merely *stated* balance is not enough -- the
+        # contradicted ones are stated too, and they are the corrupted series.
+        trusted = offset.where(value.notna())
+        before = trusted.groupby(account).ffill()
+        after = trusted.groupby(account).bfill()
+
+        # An unreadable amount is a hole in the running total, so a balance
+        # the far side of one cannot be counted from: the projection would be
+        # short by an amount nobody can name.
+        reach = chain.where(trusted.notna())
+        reach_before = reach.groupby(account).ffill()
+        reach_after = reach.groupby(account).bfill()
+        usable_before = before.where(reach_before.eq(chain))
+        usable_after = after.where(reach_after.eq(chain))
+
+        base = usable_before.fillna(usable_after)
+        adjusted = (cumulative + base).round(2).astype("Float64")
+
+        # Whether a later trusted balance agrees with what this row projects.
+        # It is the same closure test the published column runs; the
+        # difference is only that here a failure annotates the value instead
+        # of withholding it.
+        bracketed = usable_before.notna() & usable_after.notna()
+        closes = (usable_before - usable_after).abs().le(tolerance)
+
+        state = pd.Series("NO_ANCHOR", index=offset.index, dtype=object)
+        state[base.notna()] = "UNTESTED"
+        state[bracketed & closes] = "CONFIRMED"
+        state[bracketed & ~closes] = "CONTRADICTED"
+        # Last, so it wins: a row that already carries a published balance is
+        # not a projection at all, whatever the rows around it are doing.
+        state[value.notna()] = "VERIFIED"
+        return adjusted, state
 
     def _resolve(self, account, offset, cumulative, chain, stated):
         """
@@ -210,6 +307,17 @@ class BalanceReconstructor(BaseCleaner):
         status = df[STATUS].astype(str)
         for state in STATUSES:
             self.log(f"status[{state}]", int((status == state).sum()))
+
+        adjusted = df[ADJUSTED_STATUS].astype(str)
+        for state in ADJUSTED_STATUSES:
+            self.log(f"adjusted[{state}]", int((adjusted == state).sum()))
+        # What the second column buys: rows the published one leaves blank
+        # and this one can state. Reported next to the contradicted count so
+        # the gain is never read without the cost beside it.
+        self.log(
+            "adjusted.fills_a_withheld_row",
+            int((df[CLEANED].isna() & df[ADJUSTED].notna()).sum()),
+        )
 
         # Two published balances can each be verified against their own
         # neighbours and still not account for the step between them. Every
