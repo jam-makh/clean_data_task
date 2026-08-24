@@ -11,12 +11,12 @@ PYTHON ?= python
 # Deletions go through Python rather than `find`/`rm -rf` for the same reason:
 # those are sh-only, and Python is guaranteed present in a Python project.
 
-.PHONY: help run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset seed-raw clean clean-pyc clean-build
+.PHONY: help run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset seed-raw emit clean clean-pyc clean-build
 
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
 help:
-	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
+	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
 
 # Run the pipeline on the configured engine, which is spark: read the extract,
 # clean it, upsert to Postgres. Needs the stack up -- `make verify` first.
@@ -60,13 +60,19 @@ sample:
 verify:
 	$(PYTHON) -m scripts.verify_env
 
-# Create the completion-event topic if the broker does not have it. Auto-create
-# is off on purpose -- a producer aimed at a typo'd topic should fail rather
-# than quietly invent one -- so the topic has to be made deliberately. The
-# runner does this before every emit too; this target is for setting a fresh
-# broker up without running the pipeline.
+# Create both topics if the broker does not have them. Auto-create is off on
+# purpose -- a producer aimed at a typo'd topic should fail rather than quietly
+# invent one -- so the topics have to be made deliberately. The runner and the
+# dummy producer each do this before publishing too; this target is for setting
+# a fresh broker up without running anything.
 kafka-topic:
-	$(PYTHON) -c "from src.kafka import producer, settings; b = settings.load(); print('created' if producer.ensure_topic(b) else 'already there', b.topic)"
+	$(PYTHON) -c "from src.kafka import producer, settings; b = settings.load(); [print('created' if producer.ensure_topic(b, t) else 'already there', t) for t in (b.topic, b.raw_topic)]"
+
+# Announce that a row arrived, so the consumer picks it up and cleans it.
+# `make emit ID=42`, or `make emit PENDING=1` to re-announce every row the
+# consumer has not reported on -- the recovery path after it was down.
+emit:
+	$(PYTHON) -m scripts.dummy_producer $(if $(PENDING),--pending,--id $(ID))
 
 # Create cleaned_transactions, its indexes and the staging table. Idempotent --
 # every statement is IF NOT EXISTS -- so running it against a database that is

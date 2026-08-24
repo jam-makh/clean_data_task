@@ -30,7 +30,13 @@ class Broker:
     """
     :param servers: Bootstrap servers, comma separated.
     :param topic: Where completion events are published.
-    :param partitions: Partitions to create the topic with, when creating it.
+    :param raw_topic: Where "a row landed in raw_transactions" events are
+        published, and what the cleaning consumer subscribes to. Held on the
+        same object as the other topic rather than on a second settings type,
+        because everything else about reaching the broker -- the address, the
+        partition count, the replication factor -- is identical for both, and
+        splitting it would mean two objects that must agree about all of it.
+    :param partitions: Partitions to create a topic with, when creating it.
     :param replication_factor: Replicas per partition. One, because a
         single-broker cluster cannot satisfy more -- the same reason
         docker-compose.yml overrides the internal topics' default of three.
@@ -40,6 +46,7 @@ class Broker:
 
     servers: str = DEFAULT_SERVERS
     topic: str = "pipeline.run.completed.v1"
+    raw_topic: str = "transactions.raw.ingested.v1"
     partitions: int = 1
     replication_factor: int = 1
     delivery_timeout: int = 30
@@ -83,6 +90,7 @@ def load(env: dict[str, str] | None = None, config=None) -> Broker:
     return Broker(
         servers=env.get("KAFKA_BOOTSTRAP_SERVERS", DEFAULT_SERVERS),
         topic=config.topic,
+        raw_topic=config.raw_topic,
         partitions=config.partitions,
         replication_factor=config.replication_factor,
         delivery_timeout=config.delivery_timeout,

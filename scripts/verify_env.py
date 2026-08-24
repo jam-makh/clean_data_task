@@ -43,7 +43,14 @@ ENV_FILE = Path(".env")
 # that. The duplication is the price of that independence, and it is one line
 # each.
 JDBC_JAR = Path("jars/postgresql-42.7.4.jar")
-EXPECTED_TOPIC = "pipeline.run.completed.v1"
+# Both topics, because the stack is only half up with one of them: the
+# completion event has nowhere to go without the first, and the cleaning
+# consumer subscribes to a topic that does not exist -- which is not an
+# error, it is a consumer that polls forever and reports nothing wrong.
+EXPECTED_TOPICS = (
+    "pipeline.run.completed.v1",
+    "transactions.raw.ingested.v1",
+)
 
 
 def load_env_file(path: Path = ENV_FILE) -> dict[str, str]:
@@ -365,23 +372,23 @@ def check_kafka_topic(env: dict[str, str]) -> None:
         record(FAIL, "Kafka topic", f"{servers}: {type(exc).__name__}: {exc}")
         return
 
-    if EXPECTED_TOPIC not in metadata.topics:
+    missing = [t for t in EXPECTED_TOPICS if t not in metadata.topics]
+    if missing:
         known = sorted(t for t in metadata.topics if not t.startswith("__"))
         record(
             FAIL,
             "Kafka topic",
-            f"broker reachable at {servers} but '{EXPECTED_TOPIC}' does not "
-            f"exist. Topics present: {known or '(none)'}. Create it with "
-            f"kafka-topics.sh --create.",
+            f"broker reachable at {servers} but {missing} does not exist. "
+            f"Topics present: {known or '(none)'}. Create them with "
+            f"`make kafka-topic`.",
         )
         return
 
-    partitions = len(metadata.topics[EXPECTED_TOPIC].partitions)
-    record(
-        PASS,
-        "Kafka topic",
-        f"{EXPECTED_TOPIC} ({partitions} partition(s)) via {servers}",
+    described = ", ".join(
+        f"{name} ({len(metadata.topics[name].partitions)} partition(s))"
+        for name in EXPECTED_TOPICS
     )
+    record(PASS, "Kafka topic", f"{described} via {servers}")
 
 
 def check_spark_local_write() -> None:

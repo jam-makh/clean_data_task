@@ -146,7 +146,20 @@ kafka:
   # checks for this exact name.
   topic: pipeline.run.completed.v1
 
-  # Used only when the topic is created. One partition is enough for an event
+  # The other direction. This one is published by whoever put a row into
+  # raw_transactions -- scripts/dummy_producer.py, standing in for the system
+  # that would really do it -- and consumed by consumer.py, which reads the
+  # row, cleans it and writes it to cleaned_transactions.
+  #
+  # A second topic rather than a second field on the first, because the two
+  # events are read by different things and travel in opposite directions.
+  # Sharing one would put the consumer's own output back in front of it: the
+  # completion events it publishes would come back as messages it does not
+  # recognise, be skipped, and the only symptom would be a consumer doing half
+  # the work it appears to.
+  raw_topic: transactions.raw.ingested.v1
+
+  # Used only when a topic is created, and applied to both of them. One partition is enough for an event
   # stream keyed by job id and read by a single consumer, and more would buy
   # parallelism nothing needs at the cost of ordering between jobs.
   partitions: 1

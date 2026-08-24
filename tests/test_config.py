@@ -283,19 +283,51 @@ def test_kafka_defaults_when_the_section_is_absent():
     assert parsed.kafka.replication_factor == 1
 
 
-def test_the_shipped_topic_is_the_one_the_preflight_check_expects():
+def test_the_shipped_topics_are_the_ones_the_preflight_check_expects():
     """
-    ``scripts/verify_env.py`` hardcodes the topic name, deliberately -- it has
+    ``scripts/verify_env.py`` hardcodes the topic names, deliberately -- it has
     to report a broken environment while the environment is broken, so it
     imports nothing from the project. That duplication is only safe if
     something asserts the two agree.
+
+    Both names, because the stack is only half up with one of them: the
+    completion event has nowhere to go without the first, and the cleaning
+    consumer subscribes to a topic that does not exist -- which is not an
+    error, it is a consumer that polls forever and reports nothing wrong.
     """
     import re
 
     source = Path("scripts/verify_env.py").read_text(encoding="utf-8")
-    expected = re.search(r'EXPECTED_TOPIC = "([^"]+)"', source).group(1)
+    block = re.search(r"EXPECTED_TOPICS = \(([^)]+)\)", source).group(1)
+    expected = re.findall(r'"([^"]+)"', block)
+    kafka = runtime_module.load().kafka
 
-    assert runtime_module.load().kafka.topic == expected
+    assert expected, "the preflight check names no topics"
+    assert set(expected) == {kafka.topic, kafka.raw_topic}
+
+
+def test_the_two_topics_cannot_be_the_same_place():
+    """
+    Pointing both at one topic would feed the consumer its own completion
+    events. They decode as an unknown event type and are skipped, so the
+    symptom is not an error -- it is a consumer quietly doing half the work it
+    appears to.
+    """
+    with pytest.raises(ConfigError, match="cannot share a topic"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"topic": "one.v1", "raw_topic": "one.v1"},
+        })
+
+
+@pytest.mark.parametrize("key", ["topic", "raw_topic"])
+@pytest.mark.parametrize("bad", ["", "   ", 5, None])
+def test_a_bad_topic_name_is_rejected_by_name(key, bad):
+    with pytest.raises(ConfigError, match=f"kafka.{key}"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {key: bad},
+        })
 
 
 @pytest.mark.parametrize("key", ["partitions", "replication_factor", "delivery_timeout"])

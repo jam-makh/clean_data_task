@@ -100,9 +100,18 @@ class Kafka:
     :param topic: Where completion events go. The ``.v1`` is the wire
         contract: a breaking change to the payload means a new topic, not a
         new field, because a consumer reading v1 must never be handed v2.
+    :param raw_topic: Where "a row landed in raw_transactions" events go. A
+        second topic and not a second field on the first, because the two
+        events travel in opposite directions and are read by different
+        things: the completion event is published by a run and consumed by
+        whoever is watching, and this one is published by whoever inserted a
+        row and consumed by the cleaning consumer. Sharing a topic would put
+        a consumer's own output back in front of it.
     :param partitions: Used only when creating the topic. One is enough for an
         event stream keyed by job id and read by a single consumer; more would
         buy parallelism nothing here needs and cost ordering across jobs.
+        Applied to both topics -- they are created the same way and neither
+        has a reason to differ.
     :param replication_factor: One, because a single-broker cluster cannot
         satisfy more -- the same reason docker-compose.yml overrides the
         internal topics' default of three.
@@ -113,6 +122,7 @@ class Kafka:
 
     enabled: bool = True
     topic: str = "pipeline.run.completed.v1"
+    raw_topic: str = "transactions.raw.ingested.v1"
     partitions: int = 1
     replication_factor: int = 1
     delivery_timeout: int = 30
@@ -267,15 +277,30 @@ def _kafka(section, path: Path) -> Kafka:
             f"{path}: 'kafka' must be a mapping, got {type(section).__name__}"
         )
 
-    topic = section.get("topic", Kafka.topic)
-    if not isinstance(topic, str) or not topic.strip():
+    topics = {}
+    for key, default in (("topic", Kafka.topic), ("raw_topic", Kafka.raw_topic)):
+        value = section.get(key, default)
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(
+                f"{path}: kafka.{key} must be a non-empty string, got {value!r}"
+            )
+        topics[key] = value
+
+    # Two names that must differ. Pointing both at one topic would feed the
+    # consumer its own completion events, which decode as an unknown event
+    # type and are skipped -- so the symptom is not an error but a consumer
+    # that quietly does half as much work as it appears to.
+    if topics["topic"] == topics["raw_topic"]:
         raise ConfigError(
-            f"{path}: kafka.topic must be a non-empty string, got {topic!r}"
+            f"{path}: kafka.topic and kafka.raw_topic are both "
+            f"{topics['topic']!r}. They carry different events in opposite "
+            f"directions and cannot share a topic."
         )
 
     return Kafka(
         enabled=_flag(section, "enabled", True, "kafka", path),
-        topic=topic,
+        topic=topics["topic"],
+        raw_topic=topics["raw_topic"],
         partitions=_positive_int(section, "partitions", 1, "kafka", path),
         replication_factor=_positive_int(
             section, "replication_factor", 1, "kafka", path

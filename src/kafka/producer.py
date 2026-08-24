@@ -22,6 +22,15 @@ The message key is the ``sync_job_id``. That puts every event for one load on
 one partition and therefore in order, and it makes the topic compactable --
 the latest event for a job is the one worth keeping. It is also exactly the key
 a consumer dedupes on.
+
+**Two topics, one publisher.** ``publish`` and ``ensure_topic`` both take a
+topic, defaulting to the completion event's, because the ingest event
+(``src/kafka/ingest_events.py``) is published the same way to a different
+place -- same acks, same idempotence, same flush-and-check -- and a second
+producer module would have been the same code with one string changed and one
+of the two guarantees eventually dropped. The key is a parameter for the same
+reason: the ingest event names a row, not a run, so it has no ``sync_job_id``
+to key on and passes the row id instead.
 """
 
 from src.kafka import events
@@ -58,11 +67,14 @@ def _client(broker: Broker):
     return Producer(broker.producer_config)
 
 
-def ensure_topic(broker: Broker) -> bool:
+def ensure_topic(broker: Broker, topic: str | None = None) -> bool:
     """
     Creates the topic if the broker does not already have it.
 
     :param broker: Where, and with what partition count.
+    :param topic: Which topic; ``broker.topic`` -- the completion event's --
+        when absent. Named explicitly by the ingest side, which publishes to
+        ``broker.raw_topic``.
     :returns: True if this call created it, False if it was already there.
     :raises RuntimeError: If the broker cannot be reached, which is worth
         distinguishing from "the topic is missing" -- the fixes are different
@@ -70,6 +82,7 @@ def ensure_topic(broker: Broker) -> bool:
     """
     from confluent_kafka.admin import AdminClient, NewTopic
 
+    topic = topic if topic is not None else broker.topic
     admin = AdminClient({"bootstrap.servers": broker.servers})
     try:
         metadata = admin.list_topics(timeout=10)
@@ -79,11 +92,11 @@ def ensure_topic(broker: Broker) -> bool:
             f"({type(exc).__name__}: {exc}). Run `make verify`."
         ) from exc
 
-    if broker.topic in metadata.topics:
+    if topic in metadata.topics:
         return False
 
     requested = NewTopic(
-        broker.topic,
+        topic,
         num_partitions=broker.partitions,
         replication_factor=broker.replication_factor,
     )
@@ -100,23 +113,38 @@ def ensure_topic(broker: Broker) -> bool:
     return True
 
 
-def publish(payload: dict, broker: Broker | None = None) -> None:
+def publish(
+    payload: dict,
+    broker: Broker | None = None,
+    topic: str | None = None,
+    key: str | None = None,
+) -> None:
     """
     Publishes one event and waits for the broker to acknowledge it.
 
-    :param payload: The event, as ``events.build`` produced it.
+    :param payload: The event, as ``events.build`` or
+        ``ingest_events.build`` produced it.
     :param broker: Where to publish; loaded from config and environment when
         absent.
+    :param topic: Which topic; ``broker.topic`` when absent.
+    :param key: The message key; the payload's ``sync_job_id`` when absent,
+        which is what the completion event keys on. The ingest event has no
+        job id -- it names a row, not a run -- so it passes its own.
     :raises PublishError: If the event was not acknowledged within the
         configured delivery timeout, or the broker rejected it.
-    :raises ValueError: If the payload has no ``sync_job_id`` to key on, which
-        would put the event on an arbitrary partition and make it undedupable.
+    :raises ValueError: If there is no key, which would put the event on an
+        arbitrary partition and make it undedupable.
     """
     broker = broker if broker is not None else _load_broker()
+    topic = topic if topic is not None else broker.topic
 
-    key = payload.get("sync_job_id")
+    key = key if key is not None else payload.get("sync_job_id")
     if not key:
-        raise ValueError("event has no sync_job_id to use as its message key")
+        raise ValueError(
+            "event has no message key: pass one, or give the payload a "
+            "sync_job_id. Without a key the event lands on an arbitrary "
+            "partition and no consumer can dedupe it."
+        )
 
     # Captured from the delivery callback, which runs on the client's own
     # thread during flush(). A raise in there would be swallowed, so the error
@@ -130,7 +158,7 @@ def publish(payload: dict, broker: Broker | None = None) -> None:
 
     client = _client(broker)
     client.produce(
-        topic=broker.topic,
+        topic=topic,
         key=key.encode("utf-8"),
         value=events.encode(payload),
         on_delivery=delivered,

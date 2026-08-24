@@ -1,9 +1,17 @@
 """
 The Kafka side: announcing that a load finished, and what it produced.
 
-    settings   broker address and topic, read from the environment and config
-    events     the payload -- what a completion event says, and its version
-    producer   publishing it, and creating the topic when it is absent
+    settings        broker address and topics, from the environment and config
+    events          what a completion event says, and its version
+    ingest_events   what "a row landed in raw_transactions" says
+    producer        publishing either, and creating a topic when it is absent
+
+Two topics, two directions. ``events`` travels *outward* from a finished run
+and says what it did; ``ingest_events`` travels *inward*, naming a row that
+arrived and asking for it to be cleaned. They are deliberately not the same
+topic -- ``config/pipeline.yaml`` refuses to let the names collapse -- because
+the consumer publishes the first and subscribes to the second, and one topic
+would hand it back its own output.
 
 Kafka carries the *event*, not the transactions. The rows go to Postgres; what
 travels here is a statement that job X ran, over which source, under which
