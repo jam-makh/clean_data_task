@@ -6,6 +6,7 @@ from collections import Counter
 import pandas as pd
 
 from src.cleaners.base import BaseCleaner
+from src.utils import audit
 
 # The cleaned transaction timestamp, under either name a profile gives it:
 # DateNormalizer produces the first, TimestampNormalizer the second.
@@ -13,6 +14,12 @@ TIMESTAMP_COLUMNS = ("TXN_DATE_TIME_CLEANED", "TXN_TS")
 
 TERMINAL_SENTINEL = re.compile(r"^0+$")
 AUTH_SENTINEL = re.compile(r"^0+$")
+
+# Whether this row's auth code is one that recurs across the file. Kept apart
+# from AUTH_CODE_VALID, which is also false for blanks and all-zero sentinels:
+# a planted code and an absent one are both unusable and are not the same
+# finding, and only this one identifies a *value* worth chasing upstream.
+REPEATED = "AUTH_CODE_REPEATED"
 
 # The repeat threshold that decides a planted auth code from a chance
 # collision is a judgement about this source, so it lives in
@@ -24,7 +31,7 @@ class MissingValueHandler(BaseCleaner):
     Turns sentinel values into explicit flags without erasing them.
 
     The three kinds of missing are kept apart: values that are absent stay
-    null, values that are unreadable stay null and are counted, and values
+    null, values that are unreadable stay null and are marked, and values
     that are legitimately not applicable keep their sentinel and gain a flag.
     """
 
@@ -41,21 +48,16 @@ class MissingValueHandler(BaseCleaner):
                 lambda v: bool(TERMINAL_SENTINEL.match(self.text(v)))
             )
             df["HAS_TERMINAL"] = ~is_sentinel
-            self.log("terminal_id.sentinel_rows", int(is_sentinel.sum()))
 
         if "AUTH_CODE" in df.columns:
             codes = df["AUTH_CODE"].map(self.text)
             counts = Counter(c for c in codes if c)
             threshold = self.policy.missing.auth_repeat_threshold
             repeated = {c for c, n in counts.items() if n >= threshold}
-            invalid = codes.map(
-                lambda c: not c
-                or bool(AUTH_SENTINEL.match(c))
-                or c in repeated
-            )
-            df["AUTH_CODE_VALID"] = ~invalid
-            self.log("auth_code.invalid_rows", int(invalid.sum()))
-            self.log("auth_code.repeated_values", len(repeated))
+            df[REPEATED] = codes.isin(repeated)
+            df["AUTH_CODE_VALID"] = ~codes.map(
+                lambda c: not c or bool(AUTH_SENTINEL.match(c))
+            ) & ~df[REPEATED]
 
         if "SETTLE_DATE_CLEANED" in df.columns:
             # MISSING says what the source did, which is the only thing this
@@ -87,18 +89,46 @@ class MissingValueHandler(BaseCleaner):
                     )
                 )
                 status[impossible] = "ANOMALOUS"
-                self.log("settle_date.anomalous", int(impossible.sum()))
             df["SETTLE_DATE_STATUS"] = pd.Categorical(
                 status, categories=["OBSERVED", "MISSING", "ANOMALOUS"]
             )
-            self.log("settle_date.missing", int((status == "MISSING").sum()))
+
+        return df
+
+    def metrics(self, df: pd.DataFrame):
+        if "HAS_TERMINAL" in df.columns:
+            yield (
+                "terminal_id.sentinel_rows",
+                audit.rows(~df["HAS_TERMINAL"]),
+            )
+
+        if "AUTH_CODE_VALID" in df.columns:
+            yield (
+                "auth_code.invalid_rows",
+                audit.rows(~df["AUTH_CODE_VALID"]),
+            )
+            # How many *values* recur, not how many rows carry one. A single
+            # code planted on four hundred rows is one thing to chase.
+            yield (
+                "auth_code.repeated_values",
+                audit.distinct(
+                    df.loc[df[REPEATED], "AUTH_CODE"].map(self.text)
+                ),
+            )
+
+        if "SETTLE_DATE_STATUS" in df.columns:
+            status = df["SETTLE_DATE_STATUS"].astype(str)
+            # The anomaly needs a transaction date to be anomalous against.
+            # Without one the check never ran, and reporting a zero would
+            # claim it did and found nothing.
+            if any(c in df.columns for c in TIMESTAMP_COLUMNS):
+                yield "settle_date.anomalous", audit.rows(
+                    status.eq("ANOMALOUS")
+                )
+            yield "settle_date.missing", audit.rows(status.eq("MISSING"))
 
         for column in ("MERCHANT_CITY", "MERCHANT_COUNTRY"):
             if column in df.columns:
-                blanks = int(
-                    df[column].map(lambda v: self.text(v) == "").sum()
-                )
+                blanks = audit.rows(df[column].map(lambda v: self.text(v) == ""))
                 if blanks:
-                    self.log(f"{column}.blank", blanks)
-
-        return df
+                    yield f"{column}.blank", blanks

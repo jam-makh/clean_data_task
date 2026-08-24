@@ -49,10 +49,15 @@ def test_date_shaped_nulls_become_nat(token, report):
 
 def test_unrecognised_format_is_nat_not_a_guess(report):
     """An unparsed date is a bug signal and must never be silently invented."""
-    df = DateNormalizer(report).apply(
-        pd.DataFrame({"TXN_DATE_TIME": ["March 3rd 2022"]})
-    )
+    step = DateNormalizer(report)
+    df = step.apply(pd.DataFrame({"TXN_DATE_TIME": ["March 3rd 2022"]}))
     assert pd.isna(df["TXN_DATE_TIME_CLEANED"].iat[0])
+    # The row says so itself, which is the half that survives the move to
+    # Spark: the count below is derived from this column, not accumulated
+    # while the rows were being read.
+    assert df["TXN_DATE_TIME_FORMAT"].iat[0] == "UNPARSEABLE"
+
+    step.collect(df)
     assert ("dates", "TXN_DATE_TIME.unparseable", 1) in report.entries
 
 

@@ -29,9 +29,9 @@ def test_label_is_regenerated_from_the_code(report, tiny_frame):
 
 
 def test_unknown_mcc_is_reported(report, tiny_frame):
-    CodeNormalizer(report).apply(
-        tiny_frame, mcc_reference={"5411": "Grocery"}
-    )
+    step = CodeNormalizer(report)
+    out = step.apply(tiny_frame, mcc_reference={"5411": "Grocery"})
+    step.collect(out)
     assert ("codes", "mcc.not_in_reference", 2) in report.entries
 
 
@@ -204,12 +204,21 @@ def test_only_pending_merchants_reach_the_review_queue(
     ).all(), "a PENDING merchant has no candidate"
 
 
-def test_signal_is_not_carried_per_row(transactions, mcc_reference):
+def test_signal_is_carried_per_row_but_kept_off_the_sheet(
+    transactions, mcc_reference
+):
     """
-    It repeats identically across every row of a merchant; it belongs on the
-    queue.
+    Which rule chose a row's MCC has to be answerable about that row.
+
+    It used to be computed, counted, and dropped, which left the report
+    claiming a total no transaction could be traced back to. It is a
+    diagnostic column now: on the frame, so the count is derived from it and
+    the database can persist it, and off the presented sheet, where it would
+    only repeat one merchant's decision down every one of its rows.
     """
     from main import clean_transactions
+    from src.utils.columns import presented
 
     cleaned, _ = clean_transactions(transactions, mcc_reference=mcc_reference)
-    assert not [c for c in cleaned.columns if "SIGNAL" in c]
+    assert "MCC_SIGNAL" in cleaned.columns
+    assert "MCC_SIGNAL" not in presented(cleaned).columns

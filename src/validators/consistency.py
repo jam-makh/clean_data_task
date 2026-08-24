@@ -5,11 +5,13 @@ Performs read-only validation across related columns to flag discrepancies.
 Note: This module tags problematic rows; it does NOT mutate or drop data.
 """
 
+import numpy as np
 import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.cleaners.codes import REFUND_LABEL
 from src.rules import loader
+from src.utils import audit
 
 # The required-column list and both FX tolerances are judgements about how
 # strict this pipeline should be, not facts about the data, so they live in
@@ -37,6 +39,16 @@ class ConsistencyValidator(BaseCleaner):
 
     name = "consistency"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Which checks this run was able to make, in the order they were made.
+        # Every one of them depends on its columns being present, so a run
+        # over a source lacking FX_RATE simply does not ask that question --
+        # and must not report a zero for it, which would claim it looked and
+        # found nothing. The list is decided before any row is read, which is
+        # what makes it a record of the plan rather than of the data.
+        self.checks: list[str] = []
+
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         # Start from any flags an earlier step already raised, so validators
@@ -45,14 +57,16 @@ class ConsistencyValidator(BaseCleaner):
             df["VALIDATION_FLAGS"] if "VALIDATION_FLAGS" in df.columns
             else pd.Series([""] * len(df), index=df.index)
         )
-        flags = existing.map(lambda v: [f for f in str(v).split(";") if f])
+
+        self.checks = []
+        raised: list[tuple[str, np.ndarray]] = []
 
         def raise_flag(mask: pd.Series, code: str) -> None:
-            n = int(mask.sum())
-            self.log(code, n)
-            if n:
-                for idx in df.index[mask]:
-                    flags[idx].append(code)
+            """Records one check and the rows that failed it."""
+            self.checks.append(code)
+            raised.append(
+                (code, mask.fillna(False).to_numpy(dtype=bool))
+            )
 
         for column in self.policy.validation.required_columns:
             if column in df.columns:
@@ -139,8 +153,26 @@ class ConsistencyValidator(BaseCleaner):
                 "CODE_TYPE_MISMATCH",
             )
 
-        df["VALIDATION_FLAGS"] = flags.map(lambda f: ";".join(f))
-        self.log(
-            "rows_with_any_flag", int((df["VALIDATION_FLAGS"] != "").sum())
-        )
+        # One pass per check rather than one per flagged row. The leading
+        # separator is trimmed at the end instead of being conditional per
+        # row, which is the same string for a fraction of the work.
+        joined = existing.fillna("").astype(str)
+        for code, mask in raised:
+            joined = joined + np.where(mask, f";{code}", "")
+        df["VALIDATION_FLAGS"] = joined.str.lstrip(";")
         return df
+
+    def metrics(self, df: pd.DataFrame):
+        if "VALIDATION_FLAGS" not in df.columns:
+            return
+        # The flags column is the diagnostic column here, and it has been one
+        # all along -- this step already wrote its findings per row. Only the
+        # counting moved. Splitting it once gives every check's total at
+        # once, including checks that found nothing.
+        tally = audit.flag_tally(df["VALIDATION_FLAGS"])
+        for code in self.checks:
+            yield code, tally.get(code, 0)
+        yield (
+            "rows_with_any_flag",
+            audit.rows(df["VALIDATION_FLAGS"].ne("")),
+        )

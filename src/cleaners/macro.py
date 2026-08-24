@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
+from src.utils import audit
 
 # How a macro value came to be in the row.
 #
@@ -105,12 +106,21 @@ class MacroCleaner(BaseCleaner):
                 status, categories=COVERAGE
             )
 
-            for value in COVERAGE:
-                count = int((status == value).sum())
-                if count:
-                    self.log(f"{source}.{value.lower()}", count)
-
         return df
+
+    def metrics(self, df: pd.DataFrame):
+        # The coverage column was always the per-row statement; only the
+        # counting moved. A series this step could not join at all leaves no
+        # coverage column, and so reports nothing rather than a row of zeros.
+        for source, _, _ in SERIES:
+            column = f"{source}_COVERAGE"
+            if column not in df.columns:
+                continue
+            status = df[column].astype(str)
+            for value in COVERAGE:
+                count = audit.rows(status.eq(value))
+                if count:
+                    yield f"{source}.{value.lower()}", count
 
     @staticmethod
     def _coerce(source: str, values: pd.Series) -> pd.Series:

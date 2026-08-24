@@ -108,19 +108,32 @@ class TransactionCleaner:
 
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
         """
+        Runs every step, then reads the report off the finished frame.
+
+        The two loops are the point. Steps only ever mark rows, so nothing is
+        counted while the data is still moving; the totals are derived
+        afterwards, in one pass, from the diagnostic columns those marks left
+        behind. Collecting in step order reproduces the order the steps would
+        have reported in, so the report reads the same as it always did.
+
         :param df: Raw transactions.
         :returns: The cleaned frame, originals untouched.
         """
         self.report.record("pipeline", "input_rows", len(df))
         current = df.copy()
 
+        ran = []
         for step_class in self.steps:
             step = step_class(self.report, policy=self.policy, **self.config)
             self._instances[step.name] = step
+            ran.append(step)
             if isinstance(step, CodeNormalizer):
                 current = step.apply(current, mcc_reference=self.mcc_reference)
             else:
                 current = step.apply(current)
+
+        for step in ran:
+            step.collect(current)
 
         self.report.record("pipeline", "output_rows", len(current))
         self.result = current

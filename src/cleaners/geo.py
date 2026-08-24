@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
+from src.utils import audit
 
 # One token for "we do not know", used for both city and country. A blank cell
 # reads as an oversight; an explicit UNKNOWN reads as a fact that was checked
@@ -86,24 +87,47 @@ class CityNormalizer(BaseCleaner):
             )
         ]
 
-        physical = kind.eq("PHYSICAL")
-        unresolved = physical & df["MERCHANT_COUNTRY_EXPECTED"].eq("")
-
-        self.log("cities_distinct_before", int(raw.nunique()))
-        self.log(
-            "cities_distinct_after", int(df["MERCHANT_CITY_CLEANED"].nunique())
-        )
-        self.log(
-            "city.unknown", int(df["MERCHANT_CITY_CLEANED"].eq(UNKNOWN).sum())
-        )
-        self.log("ecommerce_rows", int(online.sum()))
-        for value in LOCATION_TYPES:
-            count = int((kind == value).sum())
-            if count:
-                self.log(f"location_type.{value.lower()}", count)
-        self.log("city.not_in_country_reference", int(unresolved.sum()))
-        self.log(
-            "country.unknown",
-            int(df["MERCHANT_COUNTRY_CLEANED"].eq(UNKNOWN).sum()),
-        )
         return df
+
+    def metrics(self, df: pd.DataFrame):
+        # This step adds no diagnostic column of its own, because it already
+        # had four. LOCATION_TYPE, IS_ECOMMERCE, MERCHANT_COUNTRY_EXPECTED and
+        # the cleaned city each state per row what the totals below are totals
+        # of, and MERCHANT_CITY is a raw column no step overwrites -- so the
+        # count of distinct spellings before cleaning is still readable at the
+        # end of the run.
+        if "MERCHANT_CITY_CLEANED" not in df.columns:
+            return
+
+        yield (
+            "cities_distinct_before",
+            audit.distinct(
+                df["MERCHANT_CITY"].map(lambda v: self.text(v).upper())
+            ),
+        )
+        yield (
+            "cities_distinct_after",
+            audit.distinct(df["MERCHANT_CITY_CLEANED"]),
+        )
+        yield (
+            "city.unknown",
+            audit.rows(df["MERCHANT_CITY_CLEANED"].eq(UNKNOWN)),
+        )
+        yield "ecommerce_rows", audit.rows(df["IS_ECOMMERCE"])
+
+        kind = df["LOCATION_TYPE"].astype(str)
+        for value in LOCATION_TYPES:
+            count = audit.rows(kind.eq(value))
+            if count:
+                yield f"location_type.{value.lower()}", count
+
+        yield (
+            "city.not_in_country_reference",
+            audit.rows(
+                kind.eq("PHYSICAL") & df["MERCHANT_COUNTRY_EXPECTED"].eq("")
+            ),
+        )
+        yield (
+            "country.unknown",
+            audit.rows(df["MERCHANT_COUNTRY_CLEANED"].eq(UNKNOWN)),
+        )

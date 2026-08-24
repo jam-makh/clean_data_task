@@ -22,7 +22,8 @@ def signed(rows, report):
     :returns: The frame after parsing and sign restoration.
     """
     by_label = {label: code for code, label in loader.processing_codes().items()}
-    return AmountNormalizer(report).apply(
+    step = AmountNormalizer(report)
+    out = step.apply(
         pd.DataFrame(
             {
                 "TXN_AMOUNT": [r for r, _ in rows],
@@ -32,6 +33,11 @@ def signed(rows, report):
             }
         )
     )
+    # Two calls, because a step marks rows and counts them separately: in a
+    # real run the pipeline collects from every step once the last one has
+    # finished. A test driving one step has to close that loop itself.
+    step.collect(out)
+    return out
 
 
 @pytest.mark.parametrize(

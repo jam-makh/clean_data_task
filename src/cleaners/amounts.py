@@ -2,18 +2,58 @@
 
 import re
 
+import numpy as np
 import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
 from src.rules.loader import CREDIT
+from src.utils import audit
 
 AMOUNT_COLUMNS = {"TXN_AMOUNT": "TXN_AMOUNT_CLEANED"}
 
 # The flag raised on a row whose sign had to be restored.
 SIGN_FLAG = "AMOUNT_SIGN_RESTORED"
 
+# How the number in the cleaned column was arrived at.
+#
+# PARSED       the source wrote something Python reads as a number directly.
+# REFORMATTED  it did not, and one of the three conventions this step knows --
+#              accounting parentheses, thousands separators, European decimals
+#              -- turned it into one.
+# UNPARSEABLE  the source wrote something, and none of them could read it. The
+#              cleaned value is null and the row is still here.
+# ABSENT       the source wrote nothing. Not a failure.
+PARSED, REFORMATTED, UNPARSEABLE, ABSENT = (
+    "PARSED", "REFORMATTED", "UNPARSEABLE", "ABSENT",
+)
+
+# Where the sign on the cleaned amount came from.
+#
+# AS_STATED   the source's own sign, and the declared direction agrees with it.
+# RESTORED    the source lost it and the direction supplied it. The value on
+#             this row now differs from the one in raw_transactions.
+# NOT_SIGNED  no direction was declared for the code, or there is no amount to
+#             sign. Whatever the source wrote is what stands.
+AS_STATED, RESTORED, NOT_SIGNED = "AS_STATED", "RESTORED", "NOT_SIGNED"
+
+# What processing_codes.json says the code does to the balance, per row. A
+# code the rule file has not classified is named rather than left blank: it is
+# the reason this row's amount was not touched.
+UNDECLARED = "UNDECLARED"
+DIRECTION = "PROCESSING_CODE_DIRECTION"
+
 _CLEAN = re.compile(r"[^\d.,()-]")
+
+
+def coercion_column(source: str) -> str:
+    """:returns: The column recording how ``source`` was read as a number."""
+    return f"{source}_COERCION"
+
+
+def sign_column(source: str) -> str:
+    """:returns: The column recording where ``source``'s sign came from."""
+    return f"{source}_SIGN"
 
 
 class AmountNormalizer(BaseCleaner):
@@ -55,19 +95,23 @@ class AmountNormalizer(BaseCleaner):
             df[target] = pd.to_numeric(pd.Series(values, index=df.index))
 
             present = df[source].map(lambda v: self.text(v) != "")
-            failed = int((df[target].isna() & present).sum())
-            recovered = int(
-                sum(
-                    1
-                    for raw in df[source]
-                    if pd.to_numeric(
-                        pd.Series([raw]), errors="coerce"
-                    ).isna().iat[0]
-                    and self.text(raw) != ""
-                )
+            # What the source would read as a number with no help. The gap
+            # between this and the parsed column is exactly the work this step
+            # did, stated per row instead of as a subtraction of two totals.
+            #
+            # The subtraction it replaces could go negative: a value like
+            # 'inf' that pandas reads as a number and this parser rejects was
+            # counted in one total and not the other. It does not occur in
+            # either source, which is precisely why it would have been found
+            # in production rather than here.
+            direct = pd.to_numeric(df[source], errors="coerce")
+            df[coercion_column(source)] = np.where(
+                ~present, ABSENT,
+                np.where(
+                    df[target].isna(), UNPARSEABLE,
+                    np.where(direct.isna(), REFORMATTED, PARSED),
+                ),
             )
-            self.log(f"{source}.unparseable", failed)
-            self.log(f"{source}.reformatted", recovered - failed)
 
         return self.restore_signs(df)
 
@@ -87,9 +131,9 @@ class AmountNormalizer(BaseCleaner):
         The magnitude is never touched -- only the sign is taken from the
         direction, because the digits are what the source got right and the
         sign is what it dropped. Rows already carrying the correct sign are
-        left alone and not counted.
+        left alone and marked as such.
 
-        Each corrected row is flagged as well as counted: the value on it now
+        Each corrected row is flagged as well as marked: the value on it now
         differs from the one in ``raw_transactions``, and that has to be
         traceable to the transaction rather than only to a total in the report.
 
@@ -108,9 +152,9 @@ class AmountNormalizer(BaseCleaner):
         declared = df["PROCESSING_CODE_CLEANED"].map(self.text).map(directions)
         credit = declared.eq(CREDIT)
         known = declared.notna()
-        self.log("sign.code_without_direction", int((~known).sum()))
+        df[DIRECTION] = declared.fillna(UNDECLARED)
 
-        for target in AMOUNT_COLUMNS.values():
+        for source, target in AMOUNT_COLUMNS.items():
             if target not in df.columns:
                 continue
             magnitude = df[target].abs()
@@ -119,6 +163,10 @@ class AmountNormalizer(BaseCleaner):
             )
             wrong = df[target].notna() & known & (signed != df[target])
             df[target] = signed
+            df[sign_column(source)] = np.where(
+                wrong, RESTORED,
+                np.where(known & df[target].notna(), AS_STATED, NOT_SIGNED),
+            )
 
             if "VALIDATION_FLAGS" not in df.columns:
                 df["VALIDATION_FLAGS"] = ""
@@ -131,9 +179,30 @@ class AmountNormalizer(BaseCleaner):
                     lambda s: s + ";" + SIGN_FLAG,
                 )
             )
-            self.log(f"{target}.sign_restored", int(wrong.sum()))
 
         return df
+
+    def metrics(self, df: pd.DataFrame):
+        for source, target in AMOUNT_COLUMNS.items():
+            column = coercion_column(source)
+            if column not in df.columns:
+                continue
+            read = df[column]
+            yield f"{source}.unparseable", audit.rows(read.eq(UNPARSEABLE))
+            yield f"{source}.reformatted", audit.rows(read.eq(REFORMATTED))
+
+        if DIRECTION in df.columns:
+            yield (
+                "sign.code_without_direction",
+                audit.rows(df[DIRECTION].eq(UNDECLARED)),
+            )
+            for source, target in AMOUNT_COLUMNS.items():
+                column = sign_column(source)
+                if column in df.columns:
+                    yield (
+                        f"{target}.sign_restored",
+                        audit.rows(df[column].eq(RESTORED)),
+                    )
 
     @staticmethod
     def parse(raw, currency: str = "") -> float | None:

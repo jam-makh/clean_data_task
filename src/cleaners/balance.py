@@ -27,6 +27,7 @@ balance could not also be the independent check on it.
 import pandas as pd
 
 from src.cleaners.base import BaseCleaner
+from src.utils import audit
 
 # What is known about each row's balance.
 #
@@ -68,6 +69,12 @@ CLEANED = "RUNNING_BALANCE_CLEANED"
 STATUS = "RUNNING_BALANCE_STATUS"
 ADJUSTED = "RUNNING_BALANCE_ADJUSTED"
 ADJUSTED_STATUS = "RUNNING_BALANCE_ADJUSTED_STATUS"
+
+# Whether the published balance on this row fails to lead to the one on the
+# next row of the same account. A property of the pair, recorded on the
+# earlier of the two, because that is the row a reader differencing the column
+# is standing on when the jump appears.
+CHAIN_BREAK = "RUNNING_BALANCE_CHAIN_BREAK"
 
 
 class BalanceReconstructor(BaseCleaner):
@@ -129,7 +136,6 @@ class BalanceReconstructor(BaseCleaner):
         # the values actually have makes the tolerance mean what it says,
         # rather than quietly spending itself on representation error.
         cumulative = moves.fillna(0).groupby(account).cumsum().round(2)
-        self.log("amount.unreadable", int(broken.sum()))
 
         offset = (stated - cumulative).where(stated.notna())
         status, value = self._resolve(
@@ -149,8 +155,35 @@ class BalanceReconstructor(BaseCleaner):
             adjusted_status.reindex(df.index), categories=ADJUSTED_STATUSES
         )
 
-        self._report(df, ordered, order, account, moves)
+        df[CHAIN_BREAK] = self._chain_breaks(df, ordered, account, moves)
         return df
+
+    def _chain_breaks(self, df, ordered, account, moves) -> pd.Series:
+        """
+        Marks each published balance that does not lead to the next one.
+
+        Two published balances can each be verified against their own
+        neighbours and still not account for the step between them. Every
+        value is exactly as sound as its status claims, but a reader
+        differencing the column would meet an unexplained jump, so the row it
+        starts at says so.
+
+        On this source these are the seam: each one is an account's last row
+        before the change in balance convention, beside its first row after
+        it.
+
+        :param ordered: The frame's index in transaction-sequence order.
+        :returns: Boolean per row, on the frame's own index.
+        """
+        values = pd.to_numeric(df.loc[ordered, CLEANED], errors="coerce")
+        following = values.groupby(account).shift(-1)
+        step = moves.groupby(account).shift(-1)
+        joined = values.notna() & following.notna()
+        drift = (values + step - following).abs()
+        broken = joined & drift.gt(self.policy.balance.reconcile_tolerance)
+        return (
+            broken.reindex(df.index).fillna(False).astype(bool)
+        )
 
     def _adjust(self, account, offset, cumulative, chain, value):
         """
@@ -293,56 +326,54 @@ class BalanceReconstructor(BaseCleaner):
         value[derived] = (cumulative + before)[derived].round(2)
         return status, value
 
-    def _report(self, df, ordered, order, account, moves):
+    def metrics(self, df: pd.DataFrame):
         """
-        Records the state counts, the breaks left in the published series,
-        and, when the arithmetic rejects part of the file, where that part
-        begins.
+        Reads the state counts, the breaks left in the published series, and,
+        when the arithmetic rejects part of the file, where that part begins.
 
         The boundary is reported rather than configured. It is the finding --
         "the source changed behaviour here" -- and a finding belongs in the
         report, where someone can act on it upstream, not in a constant that
         quietly encodes it as normal.
         """
+        if STATUS not in df.columns:
+            return
+
+        amount = self.config.get("amount_col", "TXN_AMOUNT_CLEANED")
+        order = self.config.get("sequence_col", "TXN_SEQ")
+        # An unreadable amount is a hole in the running total. Read back off
+        # the cleaned column, which no step after this one writes to, so the
+        # answer is the same one the arithmetic worked from.
+        yield (
+            "amount.unreadable",
+            audit.rows(pd.to_numeric(df[amount], errors="coerce").isna()),
+        )
+
         status = df[STATUS].astype(str)
         for state in STATUSES:
-            self.log(f"status[{state}]", int((status == state).sum()))
+            yield f"status[{state}]", audit.rows(status.eq(state))
 
         adjusted = df[ADJUSTED_STATUS].astype(str)
         for state in ADJUSTED_STATUSES:
-            self.log(f"adjusted[{state}]", int((adjusted == state).sum()))
+            yield f"adjusted[{state}]", audit.rows(adjusted.eq(state))
         # What the second column buys: rows the published one leaves blank
         # and this one can state. Reported next to the contradicted count so
         # the gain is never read without the cost beside it.
-        self.log(
+        yield (
             "adjusted.fills_a_withheld_row",
-            int((df[CLEANED].isna() & df[ADJUSTED].notna()).sum()),
+            audit.rows(df[CLEANED].isna() & df[ADJUSTED].notna()),
         )
 
-        # Two published balances can each be verified against their own
-        # neighbours and still not account for the step between them. Every
-        # value is exactly as sound as its status claims, but a reader
-        # differencing the column would meet an unexplained jump, so the count
-        # is stated rather than left to be discovered. On this source it is
-        # the seam: all of them are an account's last row before the change in
-        # convention beside its first row after it.
-        values = pd.to_numeric(df.loc[ordered, CLEANED], errors="coerce")
-        following = values.groupby(account).shift(-1)
-        step = moves.groupby(account).shift(-1)
-        joined = values.notna() & following.notna()
-        drift = (values + step - following).abs()
-        self.log(
-            "chain.breaks",
-            int((joined & drift.gt(self.policy.balance.reconcile_tolerance))
-                .sum()),
-        )
+        yield "chain.breaks", audit.rows(df[CHAIN_BREAK])
 
-        rejected = df.index[status == "CONTRADICTED"]
-        if len(rejected):
-            first = int(df.loc[rejected, order].astype("int64").min())
-            self.log("contradicted.first_seq", first)
-            self.log(
+        rejected = status.eq("CONTRADICTED")
+        if rejected.any():
+            yield (
+                "contradicted.first_seq",
+                int(df.loc[rejected, order].astype("int64").min()),
+            )
+            yield (
                 "contradicted.accounts",
-                int(df.loc[rejected, "ACCOUNT_ID"].nunique())
+                audit.distinct(df.loc[rejected, "ACCOUNT_ID"])
                 if "ACCOUNT_ID" in df.columns else 0,
             )

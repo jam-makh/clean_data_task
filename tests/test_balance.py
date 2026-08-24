@@ -41,7 +41,13 @@ def frame(amounts, balances, account="A"):
 
 
 def run(df, report):
-    return BalanceReconstructor(report).apply(df)
+    # Marking and counting are two calls: the step writes what it decided onto
+    # every row, and the report is read back off those columns afterwards. In
+    # a real run the pipeline does the second call for every step at once.
+    step = BalanceReconstructor(report)
+    out = step.apply(df)
+    step.collect(out)
+    return out
 
 
 def states(out):

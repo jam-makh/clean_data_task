@@ -7,6 +7,7 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
+from src.utils import audit
 
 # Three states, because three is what a reader can act on: the code is settled,
 # it is inferred, or a human still has to decide. Which rule produced a settled
@@ -14,6 +15,10 @@ from src.rules import loader
 # tiers here costs no provenance.
 HIGH, MEDIUM, PENDING = "HIGH", "MEDIUM", "PENDING"
 CONFIDENCE_ORDER = [HIGH, MEDIUM, PENDING]
+
+# Which rule decided this row's MCC: a curated assertion, the ATM rule, the
+# catch-all override, the suspect-code tiebreak, or the majority vote.
+SIGNAL = "MCC_SIGNAL"
 
 
 class MccResolver(BaseCleaner):
@@ -70,25 +75,15 @@ class MccResolver(BaseCleaner):
         df["MCC_CONFIDENCE"] = pd.Categorical(
             confidence, categories=CONFIDENCE_ORDER
         )
-        # Which rule fired is not carried per row -- it would repeat the same
-        # value across every row of a merchant. It stays on the review sheet,
-        # where one row is one decision.
-        df["_MCC_SIGNAL"] = signal
+        # Which rule decided this row's code. It repeats across every row of a
+        # merchant, which is why it is not on the presented sheet -- but it
+        # stays on the frame, because the alternative is a total in the report
+        # that no row can be traced back to. The review sheet still shows one
+        # row per decision; this shows which decision reached this
+        # transaction.
+        df[SIGNAL] = signal
 
         df = self._apply_deterministic(df, rules)
-
-        for tier in CONFIDENCE_ORDER:
-            n = int((df["MCC_CONFIDENCE"] == tier).sum())
-            if n:
-                self.log(f"confidence[{tier}]", n)
-        # Logged so the provenance the tiers no longer distinguish stays
-        # measurable: how many rows rest on a human assertion, not a heuristic.
-        for name, n in df["_MCC_SIGNAL"].value_counts().items():
-            if name:
-                self.log(f"signal[{name}]", int(n))
-        self.log(
-            "rows_with_suggestion", int((df["MCC_CODE_SUGGESTED"] != "").sum())
-        )
 
         # One MCC column leaves the pipeline, holding the code that survived
         # validation. A suggestion only exists at HIGH or MEDIUM confidence --
@@ -100,8 +95,37 @@ class MccResolver(BaseCleaner):
         df.loc[adopted, "MCC_CODE_CLEANED"] = df.loc[
             adopted, "MCC_CODE_SUGGESTED"
         ]
-        self.log("mcc_code.reassigned", int(adopted.sum()))
-        return df.drop(columns=["_MCC_SIGNAL"])
+        return df
+
+    def metrics(self, df: pd.DataFrame):
+        if "MCC_CONFIDENCE" not in df.columns:
+            return
+
+        # Split once for every deterministic rule rather than once per rule.
+        tally = audit.flag_tally(df.get("VALIDATION_FLAGS", ""))
+        for rule in loader.mcc_rules().get("deterministic", []):
+            # A rule whose trigger column is absent never ran, and reporting
+            # a zero for it would claim it did.
+            if rule["when_column"] in df.columns:
+                yield rule["flag"], tally.get(rule["flag"], 0)
+
+        confidence = df["MCC_CONFIDENCE"].astype(str)
+        for tier in CONFIDENCE_ORDER:
+            count = audit.rows(confidence.eq(tier))
+            if count:
+                yield f"confidence[{tier}]", count
+
+        # Reported so the provenance the three tiers no longer distinguish
+        # stays measurable: how many rows rest on a human assertion rather
+        # than on a heuristic.
+        if SIGNAL in df.columns:
+            named = df.loc[df[SIGNAL].ne(""), SIGNAL]
+            for name, count in audit.ranked(named):
+                yield f"signal[{name}]", count
+
+        adopted = audit.rows(df["MCC_CODE_SUGGESTED"].ne(""))
+        yield "rows_with_suggestion", adopted
+        yield "mcc_code.reassigned", adopted
 
     def _decide_per_merchant(
         self, df, overrides, catch_all, suspect, thresholds
@@ -308,7 +332,7 @@ class MccResolver(BaseCleaner):
             wrong = target & (df["MCC_CODE_CLEANED"] != rule["expect_mcc"])
             df.loc[wrong, "MCC_CODE_SUGGESTED"] = rule["expect_mcc"]
             df.loc[wrong, "MCC_CONFIDENCE"] = "HIGH"
-            df.loc[wrong, "_MCC_SIGNAL"] = "deterministic"
+            df.loc[wrong, SIGNAL] = "deterministic"
 
             # Flag per row, not only in the report -- a deterministic violation
             # has to be traceable to the transaction that caused it.
@@ -323,7 +347,6 @@ class MccResolver(BaseCleaner):
                     lambda s: s + ";" + rule["flag"],
                 )
             )
-            self.log(f"{rule['flag']}", int(wrong.sum()))
         return df
 
     def review_queue(self) -> pd.DataFrame:

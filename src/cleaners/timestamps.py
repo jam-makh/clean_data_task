@@ -7,7 +7,7 @@ reading, so an offset has to be applied to it and to nothing else.
 """
 
 import re
-from datetime import datetime
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -15,6 +15,7 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
+from src.utils import audit
 
 # What the timestamp is at its finest, which is not the same as how it is
 # rendered. Every value is written to second resolution because the column has
@@ -40,6 +41,34 @@ SOURCES = ["AS_WRITTEN", "OFFSET_APPLIED"]
 # UNKNOWN        nothing parseable. TXN_TS is null and stays null.
 STATUSES = ["OBSERVED", "TIME_UNKNOWN", "DATE_AMBIGUOUS", "UNKNOWN"]
 
+# Which rule in timestamp_formats.json read the row, and the three answers
+# that are not a rule.
+#
+# NULL_TOKEN    the source said "no timestamp".
+# UNRECOGNISED  no rule's pattern matched at all. This is a format nobody has
+#               described yet, which is a gap in the rule file.
+# UNPARSEABLE   a pattern matched and the value behind it did not parse -- a
+#               31st of February. The rule is not credited with a row it
+#               could not read.
+NULL_TOKEN = "NULL_TOKEN"
+UNRECOGNISED = "UNRECOGNISED"
+UNPARSEABLE = "UNPARSEABLE"
+
+# How a ``NN/NN/YYYY`` date was settled, in decreasing order of confidence.
+# Blank on every row not written in that format.
+FORCED_MONTH_FIRST = "FORCED_MONTH_FIRST"
+FORCED_DAY_FIRST = "FORCED_DAY_FIRST"
+BRACKET_MONTH_FIRST = "BRACKET_MONTH_FIRST"
+BRACKET_DAY_FIRST = "BRACKET_DAY_FIRST"
+# Nothing settled it and the majority reading was taken. Whether that was a
+# real coin flip is TXN_TS_AMBIGUOUS's question: most of these are dates whose
+# two readings are the same day.
+MAJORITY = "MAJORITY"
+
+TS_FORMAT = "TXN_TS_FORMAT"
+TS_SLASH = "TXN_TS_SLASH_RESOLUTION"
+SETTLE_FORMAT = "SETTLE_DATE_FORMAT"
+
 MONTH_FIRST = "%m/%d/%Y %H:%M"
 DAY_FIRST = "%d/%m/%Y %H:%M"
 MONTH_FIRST_DATE = "%m/%d/%Y"
@@ -59,12 +88,24 @@ MACRO_ORACLES = [
 ]
 
 
+class Parsed(NamedTuple):
+    """One column's worth of readings, and the provenance of each."""
+
+    wall: pd.Series
+    precision: pd.Series
+    origin: pd.Series
+    ambiguous: pd.Series
+    fmt: pd.Series
+    slash: pd.Series
+
+
 class TimestampNormalizer(BaseCleaner):
     """
     Resolves every ``TXN_DATE_TIME`` spelling to one wall clock plus its
     offset, without moving any reading the source already wrote as a clock.
 
-    The ``/`` ambiguity is settled in three passes of decreasing confidence.
+    The ``/`` ambiguity is settled in three passes of decreasing confidence,
+    and which pass settled a given row is written onto that row.
 
     A field above 12 can only be a day, which settles 55716 rows outright:
     44902 month-first, 10814 day-first. Both conventions really are present in
@@ -88,84 +129,152 @@ class TimestampNormalizer(BaseCleaner):
 
     name = "timestamps"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Which macro oracles this run was able to consult, in the order it
+        # consulted them. An oracle whose column is absent, or that was never
+        # reached because nothing was left open, did not run -- and a zero
+        # reported against it would claim it looked and settled nothing. Set
+        # from column presence, before any row is read.
+        self.oracles: list[str] = []
+
     def apply(self, df: pd.DataFrame) -> pd.DataFrame:
         source = self.config.get("input_col", "TXN_DATE_TIME")
         if source not in df.columns:
             return df
 
         df = df.copy()
+        self.oracles = []
         rules = loader.timestamp_formats()
         zone = ZoneInfo(rules["zone"]["name"])
         raw = df[source].map(self.text)
 
-        wall, precision, origin, ambiguous = self._parse_column(
+        read = self._parse_column(
             df, raw, rules["formats"], rules["null_tokens"], zone
         )
 
-        df["TXN_TS"] = wall
+        df["TXN_TS"] = read.wall
         # Derived from the calendar date, so it labels the reading without
         # touching it. Stored as the offset rather than a tz-aware dtype
         # because 74 wall-clock values in this file fall in a DST gap or fold
         # and cannot be localised at all -- tz_localize raises on them, and a
         # column that cannot hold every row is not a column.
-        df["TXN_TS_UTC_OFFSET"] = self._offsets(wall, zone)
+        df["TXN_TS_UTC_OFFSET"] = self._offsets(read.wall, zone)
         df["TXN_TS_PRECISION"] = pd.Categorical(
-            precision, categories=PRECISIONS
+            read.precision, categories=PRECISIONS
         )
-        df["TXN_TS_SOURCE"] = pd.Categorical(origin, categories=SOURCES)
-        df["TXN_TS_AMBIGUOUS"] = ambiguous
+        df["TXN_TS_SOURCE"] = pd.Categorical(read.origin, categories=SOURCES)
+        df["TXN_TS_AMBIGUOUS"] = read.ambiguous
+        df[TS_FORMAT] = read.fmt
+        df[TS_SLASH] = read.slash
 
         # Ordered weakest claim last: a row that is both date-only and
         # ambiguous is reported as ambiguous, because that is the one a reader
         # must not act on.
         status = pd.Series("OBSERVED", index=df.index, dtype=object)
-        status[precision == "DAY"] = "TIME_UNKNOWN"
-        status[ambiguous] = "DATE_AMBIGUOUS"
-        status[wall.isna()] = "UNKNOWN"
+        status[read.precision == "DAY"] = "TIME_UNKNOWN"
+        status[read.ambiguous] = "DATE_AMBIGUOUS"
+        status[read.wall.isna()] = "UNKNOWN"
         df["TXN_TS_STATUS"] = pd.Categorical(status, categories=STATUSES)
-        for value in STATUSES:
-            self.log(f"txn_ts.status[{value}]", int((status == value).sum()))
-
-        self.log("txn_ts.unparseable", int(wall.isna().sum()))
-        self.log(
-            "txn_ts.offset_applied", int((origin == "OFFSET_APPLIED").sum())
-        )
-        self.log("txn_ts.ambiguous_day_month", int(ambiguous.sum()))
-        for value in PRECISIONS:
-            self.log(
-                f"txn_ts.precision[{value}]", int((precision == value).sum())
-            )
 
         if "SETTLE_DATE" in df.columns:
             settle = df["SETTLE_DATE"].map(self.text)
-            df["SETTLE_DATE_CLEANED"] = self._parse_settle(
+            values, labels = self._parse_settle(
                 settle, rules["settle_formats"], rules["null_tokens"]
             )
-            blanks = int(settle.isin(rules["null_tokens"]).sum())
-            self.log("settle_date.null_token", blanks)
-            self.log(
-                "settle_date.unparseable",
-                int(df["SETTLE_DATE_CLEANED"].isna().sum()) - blanks,
-            )
+            df["SETTLE_DATE_CLEANED"] = values
+            df[SETTLE_FORMAT] = labels
         return df
 
-    def _parse_column(self, df, raw, formats, null_tokens, zone):
+    def metrics(self, df: pd.DataFrame):
+        if TS_SLASH in df.columns:
+            route = df[TS_SLASH]
+            yield (
+                "txn_ts.slash_forced_month_first",
+                audit.rows(route.eq(FORCED_MONTH_FIRST)),
+            )
+            yield (
+                "txn_ts.slash_forced_day_first",
+                audit.rows(route.eq(FORCED_DAY_FIRST)),
+            )
+            for column in self.oracles:
+                yield (
+                    f"txn_ts.slash_resolved_by[{column}]",
+                    audit.rows(route.eq(f"MACRO[{column}]")),
+                )
+            yield (
+                "txn_ts.slash_bracket_month_first",
+                audit.rows(route.eq(BRACKET_MONTH_FIRST)),
+            )
+            yield (
+                "txn_ts.slash_bracket_day_first",
+                audit.rows(route.eq(BRACKET_DAY_FIRST)),
+            )
+
+        if TS_FORMAT in df.columns:
+            yield (
+                "txn_ts.unrecognised_format",
+                audit.rows(df[TS_FORMAT].eq(UNRECOGNISED)),
+            )
+
+        if "TXN_TS_STATUS" in df.columns:
+            status = df["TXN_TS_STATUS"].astype(str)
+            for value in STATUSES:
+                yield f"txn_ts.status[{value}]", audit.rows(status.eq(value))
+
+            yield "txn_ts.unparseable", audit.rows(df["TXN_TS"].isna())
+            yield (
+                "txn_ts.offset_applied",
+                audit.rows(df["TXN_TS_SOURCE"].astype(str).eq(
+                    "OFFSET_APPLIED"
+                )),
+            )
+            yield (
+                "txn_ts.ambiguous_day_month",
+                audit.rows(df["TXN_TS_AMBIGUOUS"]),
+            )
+            precision = df["TXN_TS_PRECISION"].astype(str)
+            for value in PRECISIONS:
+                yield (
+                    f"txn_ts.precision[{value}]",
+                    audit.rows(precision.eq(value)),
+                )
+
+        if SETTLE_FORMAT in df.columns:
+            blanks = audit.rows(df[SETTLE_FORMAT].eq(NULL_TOKEN))
+            yield "settle_date.null_token", blanks
+            # Everything null that the source did not declare null. Taken
+            # from the value column rather than the label, so a rule that
+            # matched a shape and then failed on the value is counted here
+            # rather than credited to the rule.
+            yield (
+                "settle_date.unparseable",
+                audit.rows(df["SETTLE_DATE_CLEANED"].isna()) - blanks,
+            )
+
+    def _parse_column(self, df, raw, formats, null_tokens, zone) -> Parsed:
         """
         :param df: Frame, for the account and sequence columns.
         :param raw: Stripped source strings.
-        :returns: (wall clock, precision, origin, ambiguity flag).
+        :returns: The readings and the provenance of each.
         """
         index = raw.index
         wall = pd.Series(pd.NaT, index=index, dtype="datetime64[ns]")
         precision = pd.Series("", index=index, dtype=object)
         origin = pd.Series("AS_WRITTEN", index=index, dtype=object)
+        fmt = pd.Series(UNRECOGNISED, index=index, dtype=object)
+        slash = pd.Series("", index=index, dtype=object)
 
-        slash_rule, matched = None, raw.isin(null_tokens)
+        blank = raw.isin(null_tokens)
+        fmt[blank] = NULL_TOKEN
+
+        slash_rule, matched = None, blank
         for rule in formats:
             hit = raw.str.match(rule["regex"]).fillna(False) & ~matched
             if not hit.any():
                 continue
             matched |= hit
+            fmt[hit] = rule["name"]
             if rule["strptime"] == "AMBIGUOUS_SLASH":
                 slash_rule = (rule, hit)
                 continue
@@ -202,12 +311,17 @@ class TimestampNormalizer(BaseCleaner):
         if slash_rule is not None:
             rule, hit = slash_rule
             precision[hit] = rule["precision"]
-            resolved, unresolved = self._resolve_slash(df, raw, hit)
+            resolved, unresolved, route = self._resolve_slash(df, raw, hit)
             wall[hit] = resolved
             ambiguous[hit] = unresolved
+            slash[hit] = route
 
-        self.log("txn_ts.unrecognised_format", int((~matched).sum()))
-        return wall, precision, origin, ambiguous
+        # A pattern that matched a value it then could not read is not
+        # evidence for that pattern. Applied after every rule has run, and
+        # never to a row nothing matched, which stays UNRECOGNISED -- the two
+        # say different things about the rule file.
+        fmt[wall.isna() & ~blank & matched] = UNPARSEABLE
+        return Parsed(wall, precision, origin, ambiguous, fmt, slash)
 
     def _resolve_slash(self, df, raw, hit):
         """
@@ -215,7 +329,8 @@ class TimestampNormalizer(BaseCleaner):
         sequence bracket.
 
         :param hit: Mask of the rows written in the ambiguous format.
-        :returns: (parsed timestamps, mask of rows still unresolved).
+        :returns: (parsed timestamps, mask of rows still unresolved, the pass
+            that settled each row).
         """
         subset = raw[hit]
         fields = subset.str.extract(_SLASH_FIELDS)
@@ -227,29 +342,35 @@ class TimestampNormalizer(BaseCleaner):
         )
         day_first = pd.to_datetime(subset, format=DAY_FIRST, errors="coerce")
 
+        # The two cannot both hold: forcing month-first needs the second field
+        # above 12 and the month-first reading to parse, which needs the first
+        # field at or below 12 -- and forcing day-first needs the opposite of
+        # both. So one column can carry the answer.
         forced_day = (first > 12) & day_first.notna()
         forced_month = (second > 12) & month_first.notna()
         out = pd.Series(pd.NaT, index=subset.index, dtype="datetime64[ns]")
+        route = pd.Series("", index=subset.index, dtype=object)
         out[forced_month] = month_first[forced_month]
         out[forced_day] = day_first[forced_day]
-        self.log("txn_ts.slash_forced_month_first", int(forced_month.sum()))
-        self.log("txn_ts.slash_forced_day_first", int(forced_day.sum()))
+        route[forced_month] = FORCED_MONTH_FIRST
+        route[forced_day] = FORCED_DAY_FIRST
 
         open_rows = subset.index[~forced_day & ~forced_month]
         if not len(open_rows):
-            return out, pd.Series(False, index=subset.index)
+            return out, pd.Series(False, index=subset.index), route
 
         open_rows = self._settle_by_macro(
-            df, out, open_rows, month_first, day_first
+            df, out, route, open_rows, month_first, day_first
         )
         open_rows = self._settle_by_sequence(
-            df, out, open_rows, month_first, day_first
+            df, out, route, open_rows, month_first, day_first
         )
 
         # Month-first is the majority reading, 44902 forced rows to 10814, and
         # every row the rate could judge agreed with it. Recorded as a guess
         # regardless, which is the part that matters.
         out[open_rows] = month_first[open_rows]
+        route[open_rows] = MAJORITY
         flag = pd.Series(False, index=subset.index)
         # Unresolved is not the same as ambiguous. 3081 of these are dates
         # like 01/01/2022 where the day and the month are the same number, so
@@ -259,9 +380,11 @@ class TimestampNormalizer(BaseCleaner):
         flag[open_rows] = (
             month_first[open_rows] != day_first[open_rows]
         )
-        return out, flag
+        return out, flag, route
 
-    def _settle_by_macro(self, df, out, open_rows, month_first, day_first):
+    def _settle_by_macro(
+        self, df, out, route, open_rows, month_first, day_first
+    ):
         """
         Uses the month a row's macro rate belongs to as an oracle for its date.
 
@@ -273,6 +396,7 @@ class TimestampNormalizer(BaseCleaner):
         2023-04, which is what the last 136 open rows are.
 
         :param out: Timestamps so far, written into in place.
+        :param route: Which pass settled each row, written into in place.
         :param open_rows: Index of rows still unresolved.
         :returns: The subset of ``open_rows`` this pass could not settle.
         """
@@ -308,13 +432,16 @@ class TimestampNormalizer(BaseCleaner):
                 if fits[0] == fits[1]:
                     continue
                 out.at[row] = candidates[0] if fits[0] else candidates[1]
+                route.at[row] = f"MACRO[{column}]"
                 settled.append(row)
 
-            self.log(f"txn_ts.slash_resolved_by[{column}]", len(settled))
+            self.oracles.append(column)
             open_rows = open_rows.difference(pd.Index(settled))
         return open_rows
 
-    def _settle_by_sequence(self, df, out, open_rows, month_first, day_first):
+    def _settle_by_sequence(
+        self, df, out, route, open_rows, month_first, day_first
+    ):
         """
         Brackets each remaining row between its nearest placed neighbours in
         transaction order and keeps the reading that fits.
@@ -344,22 +471,28 @@ class TimestampNormalizer(BaseCleaner):
         only_day = fits_day & ~fits_month
         out[open_rows[only_month]] = month_first[open_rows[only_month]]
         out[open_rows[only_day]] = day_first[open_rows[only_day]]
-        self.log("txn_ts.slash_bracket_month_first", int(only_month.sum()))
-        self.log("txn_ts.slash_bracket_day_first", int(only_day.sum()))
+        route[open_rows[only_month]] = BRACKET_MONTH_FIRST
+        route[open_rows[only_day]] = BRACKET_DAY_FIRST
         return open_rows[~(only_month | only_day)]
 
     def _parse_settle(self, raw, formats, null_tokens):
         """
-        :returns: Settlement dates; date-only in every spelling, by design of
-            the field rather than by loss, so no time or offset is attached.
+        :returns: (settlement dates, the rule that read each one). Date-only
+            in every spelling, by design of the field rather than by loss, so
+            no time or offset is attached.
         """
         out = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns]")
-        done = raw.isin(null_tokens)
+        labels = pd.Series(UNRECOGNISED, index=raw.index, dtype=object)
+        blank = raw.isin(null_tokens)
+        labels[blank] = NULL_TOKEN
+
+        done = blank
         for rule in formats:
             hit = raw.str.match(rule["regex"]).fillna(False) & ~done
             if not hit.any():
                 continue
             done |= hit
+            labels[hit] = rule["name"]
             if rule["strptime"] == "AMBIGUOUS_SLASH":
                 subset = raw[hit]
                 first = pd.to_numeric(
@@ -378,7 +511,9 @@ class TimestampNormalizer(BaseCleaner):
             out[hit] = pd.to_datetime(
                 raw[hit], format=rule["strptime"], errors="coerce"
             )
-        return out
+
+        labels[out.isna() & ~blank & done] = UNPARSEABLE
+        return out, labels
 
     @staticmethod
     def _offsets(wall: pd.Series, zone: ZoneInfo) -> pd.Series:

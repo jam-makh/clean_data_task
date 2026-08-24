@@ -59,6 +59,54 @@ def test_report_records_every_step(transactions, mcc_reference):
     assert {"dates", "amounts", "merchant", "mcc", "consistency"} <= steps
 
 
+def test_a_stage_marks_rows_and_counts_nothing(transactions, mcc_reference):
+    """
+    The contract the Spark port rests on.
+
+    A stage that counted while it ran had to hold the total somewhere outside
+    the rows -- a closure, or an accumulating `.sum()`. Distributed, that
+    total is filled in on each executor and read back empty on the driver,
+    with no error and a report full of plausible zeros. So `apply` is allowed
+    to write columns and nothing else; every number comes from `metrics`,
+    afterwards, out of those columns.
+    """
+    from src.cleaners import CodeNormalizer
+    from src.config.policy import load as load_policy
+    from src.pipeline import DEFAULT_STEPS
+    from src.utils.report import CleaningReport
+
+    report = CleaningReport()
+    policy = load_policy()
+    frame = transactions.copy()
+    ran = []
+
+    for step_class in DEFAULT_STEPS:
+        step = step_class(report, policy=policy)
+        ran.append(step)
+        if isinstance(step, CodeNormalizer):
+            frame = step.apply(frame, mcc_reference=mcc_reference)
+        else:
+            frame = step.apply(frame)
+        assert report.entries == [], f"{step.name} counted during apply"
+
+    for step in ran:
+        step.collect(frame)
+    assert report.entries, "no step could report from the finished frame"
+
+
+def test_no_stage_can_write_to_the_report_while_it_runs():
+    """
+    The old escape hatch is gone, not merely unused.
+
+    `log()` is what let a stage reduce mid-run. Leaving it in place would mean
+    the next stage anyone adds can quietly reintroduce the bug this phase
+    removed, and it would keep passing every test until it reached a cluster.
+    """
+    from src.cleaners.base import BaseCleaner
+
+    assert not hasattr(BaseCleaner, "log")
+
+
 def test_workbook_has_every_sheet(tmp_path, transactions, mcc_reference):
     cleaner = TransactionCleaner(mcc_reference=mcc_reference)
     cleaned = cleaner.run(transactions)

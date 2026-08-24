@@ -32,25 +32,79 @@ never drift.
 
 ## The shared contract
 
-Every stage is a class with one method.
+Every stage is a class with two methods, and the split between them is the
+whole contract.
 
 ```python
 class BaseCleaner(ABC):
-    def apply(self, df: pd.DataFrame) -> pd.DataFrame: ...
-    def log(self, metric: str, value) -> None: ...
+    def apply(self, df: pd.DataFrame) -> pd.DataFrame: ...      # marks
+    def metrics(self, df: pd.DataFrame) -> Iterator[...]: ...   # counts
 ```
 
 | Rule | Why |
 |---|---|
 | Takes a frame, returns a **new** frame | The input is never mutated, so a stage can be rerun |
 | Same shape for every stage | The pipeline holds them in a list and runs them without knowing what any does |
-| Writes counts to one shared `CleaningReport` | A step that quietly nulls 400 rows looks identical to one that changed nothing |
+| `apply` marks rows and counts nothing | See below — this is what makes the stage portable to Spark |
+| `metrics` derives every total from columns | A step that quietly nulls 400 rows looks identical to one that changed nothing |
 | Steps are constructor arguments, not hardcoded | You can run one stage alone while developing it |
 
 ```python
 TransactionCleaner(steps=[DateNormalizer]).run(df)   # one stage
 TransactionCleaner().run(df)                         # all nine
 ```
+
+### Mark, don't count
+
+A stage never computes a total while it is touching rows. It writes a
+**diagnostic column** saying what it did to each row — which date format was
+read, whether an amount had to be reformatted, whether a balance reconciled —
+and the run's totals are derived from those columns afterwards, in one pass,
+by `TransactionCleaner.run`.
+
+The reason is that a running total has to live somewhere outside the rows, and
+the only places to put one are a closure or an accumulating call like `.sum()`.
+Both are single-process constructs. This is what the code used to look like:
+
+```python
+matched: dict[str, int] = {}
+parsed = df[source].map(lambda v: self._parse(v, compiled, null_tokens, matched))
+for fmt, count in sorted(matched.items(), key=lambda kv: -kv[1]):
+    self.log(f"{source}.format[{fmt}]", count)
+```
+
+`matched` is filled in as a side effect, once per row, and works only because
+`.map` runs every row in one process. Distributed, each executor gets its own
+copy, fills it in, and discards it; the driver reads back the original, still
+empty, and reports zero for every format. No error, no warning — just a report
+that lies. Writing the format onto the row instead is the operation that
+survives the move, because the mark travels with the row it describes.
+
+It also makes the audit trail a property of the data rather than of the run.
+"How many amounts were reformatted" and "was *this* amount reformatted" stop
+being two questions answered in two places.
+
+| Written by | Column | Says |
+|---|---|---|
+| dates / timestamps | `*_FORMAT` | Which rule read the value, or `NULL_TOKEN` / `UNRECOGNISED` / `UNPARSEABLE` |
+| timestamps | `TXN_TS_SLASH_RESOLUTION` | Which of the three passes settled a `NN/NN` date |
+| amounts | `TXN_AMOUNT_COERCION` | `PARSED` / `REFORMATTED` / `UNPARSEABLE` / `ABSENT` |
+| amounts | `TXN_AMOUNT_SIGN`, `PROCESSING_CODE_DIRECTION` | Where the sign came from, and on whose authority |
+| duplicates | `EXACT_DUPLICATE_COPIES`, `TXN_ID_COLLISION` | How many source rows this one stands for; whether its key was shared |
+| missing | `AUTH_CODE_REPEATED` | The code recurs across the file, so it was planted |
+| balance | `RUNNING_BALANCE_CHAIN_BREAK` | This published balance does not lead to the next one |
+| mcc | `MCC_SIGNAL` | Which rule chose the code |
+
+`EXACT_DUPLICATE_COPIES` is the one that needs the trick: the dropped rows are
+gone by the end of the run, so the survivor carries the size of the group it
+absorbed, and `sum(copies) - len(df)` is what was dropped. In Spark that is one
+`groupBy(*columns).count()`.
+
+These are on the frame, not on the cleaned sheet — the sheet states the cleaned
+row, and a column saying how a value was arrived at is a second reading of the
+column beside it. `AUDIT_COLUMNS` in `utils/columns.py` is the list that
+persists to the database, which is where "why does this row look like this" is
+the question actually being asked.
 
 ---
 
@@ -958,23 +1012,32 @@ and the arithmetic cannot say which, so the pipeline says so and stops. The
 distinction is not caution for its own sake — it is whether the data contains
 the answer.
 
-### 5. Every step writes to one shared report
+### 5. Every step reports, and none of them counts
 
 `CleaningReport` is passed to every stage and accumulates across the run.
 Without it, a step that quietly nulls 400 rows is indistinguishable from one
 that changed nothing. It is also the only place a run's outcome is recorded,
 which is what lets this document stay free of counts.
 
+What it no longer is, is something a stage writes to while it runs. Every
+entry is derived after the last stage finishes, from the diagnostic columns
+described in [the shared contract](#mark-dont-count). Collecting in step order
+is what keeps the report reading the same as it always did.
+
 ---
 
 ## Adding a stage
 
 1. Subclass `BaseCleaner`, implement `apply`, set `name`.
-2. Put any vocabulary in `rules/json/` and add a `loader` function.
-3. Insert it in `DEFAULT_STEPS` at the point its dependencies allow.
-4. If it produces a review queue, expose `review_queue()` and add the sheet in
+2. Have `apply` write a diagnostic column for anything you want counted, and
+   implement `metrics` to derive those counts from it. Do not reduce inside
+   `apply` — see [Mark, don't count](#mark-dont-count).
+3. Put any vocabulary in `rules/json/` and add a `loader` function.
+4. Insert it in `DEFAULT_STEPS` at the point its dependencies allow.
+5. If it produces a review queue, expose `review_queue()` and add the sheet in
    `build_sheets`.
-5. Add derived columns to `PRESENTATION_ORDER` in `utils/columns.py`.
+6. Add derived columns to `PRESENTATION_ORDER` in `utils/columns.py`, and any
+   diagnostic column to `INTERNAL` and `AUDIT_COLUMNS`.
 
 The orchestrator needs no edit — it holds steps in a list and runs them.
 

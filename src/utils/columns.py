@@ -107,6 +107,88 @@ INTERNAL = [
     "INTEREST_RATE_INDEX_COVERAGE",
     "INFLATION_INDEX_COVERAGE",
     "IS_HOLIDAY_MONTH_COVERAGE",
+    # The diagnostic columns every stage now writes instead of counting as it
+    # goes. Each one says what a stage did to this row; together they are what
+    # the run's report is derived from, in one pass, after every stage has
+    # finished. See `src/utils/audit.py` and `BaseCleaner`.
+    #
+    # They are off the *sheet* for the reason the three timestamp qualifiers
+    # above are: the sheet's job is to state the cleaned row, and a column
+    # saying how the value was arrived at is a second reading of the column
+    # beside it. That is a decision about this presentation, not about the
+    # data -- they stay on the frame throughout, and AUDIT_COLUMNS below is
+    # the list that persists to the database, where the question "why does
+    # this row look like this" is the one being asked.
+    "TXN_DATE_TIME_FORMAT",
+    "SETTLE_DATE_FORMAT",
+    "TXN_TS_FORMAT",
+    "TXN_TS_SLASH_RESOLUTION",
+    "TXN_AMOUNT_COERCION",
+    "TXN_AMOUNT_SIGN",
+    "PROCESSING_CODE_DIRECTION",
+    "EXACT_DUPLICATE_COPIES",
+    "TXN_ID_COLLISION",
+    "AUTH_CODE_REPEATED",
+    "RUNNING_BALANCE_CHAIN_BREAK",
+    "MCC_SIGNAL",
+]
+
+# The audit trail as it is written to the database in Stage 2, and the answer
+# to requirement 7 at the cleaning boundary.
+#
+# The split this list encodes is between the two questions a stored row has to
+# answer. The cleaned columns answer "what is this transaction". These answer
+# "how do you know" -- which format read the date, whether the amount was
+# reformatted or its sign restored, whether the balance reconciled, which rule
+# chose the MCC, how many identical source rows this one stands for. Every one
+# of them is a per-row statement, so every one survives the write; a total in
+# a report cannot be joined back to the transaction that caused it, which is
+# what makes a report an insufficient audit trail on its own.
+#
+# Internal-only is the short list, and everything on it is internal because it
+# is a working value some other published column already states in full, not
+# because it is uninteresting: MCC_CATEGORY is the reference sheet repeated
+# per row, MCC_CODE_SUGGESTED has been folded into MCC_CODE_CLEANED, and
+# MERCHANT_KIND, MERCHANT_RECOGNISED and INTERNAL_MOVEMENT are three spellings
+# of MATCHES_STATUS_CLEANED.
+AUDIT_COLUMNS = [
+    # How each timestamp was read, and how the day/month ambiguity was settled.
+    "TXN_DATE_TIME_FORMAT",
+    "TXN_TS_FORMAT",
+    "TXN_TS_SLASH_RESOLUTION",
+    "TXN_TS_STATUS",
+    "TXN_TS_SOURCE",
+    "TXN_TS_PRECISION",
+    "TXN_TS_AMBIGUOUS",
+    "SETTLE_DATE_FORMAT",
+    "SETTLE_DATE_STATUS",
+    # What was done to the money, and on whose authority.
+    "TXN_AMOUNT_COERCION",
+    "TXN_AMOUNT_SIGN",
+    "PROCESSING_CODE_DIRECTION",
+    # What the arithmetic could and could not prove about the balance.
+    "RUNNING_BALANCE_STATUS",
+    "RUNNING_BALANCE_ADJUSTED_STATUS",
+    "RUNNING_BALANCE_CHAIN_BREAK",
+    # Identity: what collapsed into this row, and whether its key was shared.
+    "EXACT_DUPLICATE_COPIES",
+    "TXN_ID_COLLISION",
+    # Which rule decided the MCC, and how far the merchant name resolved.
+    "MCC_SIGNAL",
+    "MCC_CONFIDENCE",
+    "MERCHANT_PROCESSOR",
+    # What was recoverable, and what was a sentinel rather than a gap.
+    "HAS_TERMINAL",
+    "AUTH_CODE_VALID",
+    "AUTH_CODE_REPEATED",
+    "IS_ECOMMERCE",
+    "LOCATION_TYPE",
+    "MERCHANT_COUNTRY_EXPECTED",
+    "INTEREST_RATE_INDEX_COVERAGE",
+    "INFLATION_INDEX_COVERAGE",
+    "IS_HOLIDAY_MONTH_COVERAGE",
+    # Every cross-field contradiction found, per row.
+    "VALIDATION_FLAGS",
 ]
 
 # Identity, then money, then merchant, then codes, then flags. Any column not

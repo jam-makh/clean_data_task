@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.cleaners.base import BaseCleaner
 from src.rules import loader
+from src.utils import audit
 
 URL_SUFFIX = re.compile(r"\.(COM|NET|ORG|CO|IO|AI|ME|SA|AE|LB|FR|DE|EG)\b")
 # The space before the slash is load-bearing. Without it this also matches the
@@ -186,39 +187,48 @@ class MerchantCleaner(BaseCleaner):
             UNIDENTIFIED: PENDING,
         }
         df["MATCHES_STATUS_CLEANED"] = [status[k] for k in kinds]
-        self.log(
-            "matches_status.pending",
-            int((df["MATCHES_STATUS_CLEANED"] == PENDING).sum()),
-        )
-
-        self.log(
-            "merchants_distinct",
-            int(df.loc[df["MERCHANT_RECOGNISED"],
-                       "MERCHANT_NAME_CLEANED"].nunique()),
-        )
-        self.log("merchant.internal_movement_rows",
-                 int(df["INTERNAL_MOVEMENT"].sum()))
-        internal_names = df.loc[
-            df["INTERNAL_MOVEMENT"], "MERCHANT_NAME_CLEANED"
-        ]
-        for label, count in internal_names.value_counts().items():
-            self.log(f"merchant.internal[{label}]", int(count))
-        unknown = df["MERCHANT_KIND"] == UNIDENTIFIED
-        self.log("merchant.unrecognised_rows", int(unknown.sum()))
-        self.log(
-            "merchant.unrecognised_names",
-            int(df.loc[unknown, "MERCHANT_NAME_CLEANED"].nunique()),
-        )
         self._review = self._build_review(df, source)
-        self.log(
-            "processor_prefix_stripped",
-            int((df["MERCHANT_PROCESSOR"] != UNKNOWN_PROCESSOR).sum()),
-        )
-        self.log(
-            "empty_after_clean",
-            int((df["MERCHANT_NAME_CLEANED"] == "").sum()),
-        )
         return df
+
+    def metrics(self, df: pd.DataFrame):
+        # Six columns, all of them already on the row before this step
+        # finished, and none of them touched by anything downstream -- MCC
+        # resolution reads the cleaned merchant name but never rewrites it.
+        if "MERCHANT_NAME_CLEANED" not in df.columns:
+            return
+
+        yield (
+            "matches_status.pending",
+            audit.rows(df["MATCHES_STATUS_CLEANED"].eq(PENDING)),
+        )
+        yield (
+            "merchants_distinct",
+            audit.distinct(
+                df.loc[df["MERCHANT_RECOGNISED"], "MERCHANT_NAME_CLEANED"]
+            ),
+        )
+        yield (
+            "merchant.internal_movement_rows",
+            audit.rows(df["INTERNAL_MOVEMENT"]),
+        )
+        internal = df.loc[df["INTERNAL_MOVEMENT"], "MERCHANT_NAME_CLEANED"]
+        for label, count in audit.ranked(internal):
+            yield f"merchant.internal[{label}]", count
+
+        unknown = df["MERCHANT_KIND"].eq(UNIDENTIFIED)
+        yield "merchant.unrecognised_rows", audit.rows(unknown)
+        yield (
+            "merchant.unrecognised_names",
+            audit.distinct(df.loc[unknown, "MERCHANT_NAME_CLEANED"]),
+        )
+        yield (
+            "processor_prefix_stripped",
+            audit.rows(df["MERCHANT_PROCESSOR"].ne(UNKNOWN_PROCESSOR)),
+        )
+        yield (
+            "empty_after_clean",
+            audit.rows(df["MERCHANT_NAME_CLEANED"].eq("")),
+        )
 
     REVIEW_COLUMNS = [
         "MERCHANT_NAME_CLEANED", "ROW_COUNT", "RAW_SPELLINGS",
