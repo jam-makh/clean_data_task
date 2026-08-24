@@ -189,7 +189,24 @@ class MccResolver(BaseCleaner):
         # sending that to a human to arbitrate asks them to weigh nothing
         # against something.
         if specific and counts.get(catch_all, 0) >= max(specific.values()):
-            best = max(specific, key=specific.get)
+            # Highest count, and on a tie the lowest code. The tiebreak is
+            # stated rather than left to `max`, which returns the first
+            # maximal element in iteration order -- and a Counter's iteration
+            # order is the order the codes first appear in the FILE. That made
+            # the winner a property of how the extract happened to be sorted:
+            # re-sort the source and the same merchant resolves to a different
+            # category, silently. It also cannot be ported, because a Spark
+            # frame has no file order to appeal to after a shuffle.
+            #
+            # Lowest code is arbitrary but it is *stated*, which is the whole
+            # point. On this source it changes one merchant (JUMIA, 5812 and
+            # 5411 tied at 3 apiece) and 88 rows. Preferring a non-suspect code
+            # here -- the rule the top-count tie a few lines below already
+            # uses -- would be the more principled tiebreak and reaches the
+            # same answer on this data; it is a change to what the pipeline
+            # decides rather than to how reproducibly it decides it, so it is
+            # not made here.
+            best = min(specific, key=lambda code: (-specific[code], code))
             return {
                 "mcc": best,
                 "confidence": MEDIUM,

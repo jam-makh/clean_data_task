@@ -12,7 +12,7 @@ raise. All of them produce a full run and a wrong answer.
 
 import pytest
 
-from src.spark import source
+from src.spark import spark_setup as source
 
 
 def _write(tmp_path, name, text):

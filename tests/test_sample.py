@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from src.spark import sample as sample_module
+from tests.harness import sample as sample_module
 
 
 @pytest.fixture(scope="session")

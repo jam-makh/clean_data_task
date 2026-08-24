@@ -14,7 +14,7 @@ honoured until you ask.
 
 import pytest
 
-from src.spark import session as session_module
+from src.spark import spark_setup as session_module
 
 
 def test_settings_pin_the_semantics():

@@ -109,7 +109,7 @@ def spark():
     """
     pytest.importorskip("pyspark")
 
-    from src.spark import session as session_module
+    from src.spark import spark_setup as session_module
 
     try:
         active = session_module.session("parity-tests")
@@ -126,10 +126,10 @@ def spark():
 def sample_path():
     """
     :returns: Path to the parity sample, cut from the forecast extract on
-        first use and cached after. See ``src.spark.sample`` for what "cut"
+        first use and cached after. See ``tests.harness.sample`` for what "cut"
         means here -- it is chosen, not taken.
     """
-    from src.spark import sample as sample_module
+    from tests.harness import sample as sample_module
 
     try:
         return sample_module.ensure(source=FORECAST)

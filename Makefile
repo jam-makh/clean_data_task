@@ -42,7 +42,7 @@ parity:
 # useful after editing the sampling strategy, which the manifest's version
 # check would otherwise catch only on the next test run.
 sample:
-	$(PYTHON) -c "from src.spark.sample import build; print(build())"
+	$(PYTHON) -c "from tests.harness.sample import build; print(build())"
 
 # Does this machine run the Stage 2 stack? Every failure names its own fix.
 verify:

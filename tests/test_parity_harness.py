@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.spark.parity import assert_parity, compare
+from tests.harness.parity import assert_parity, compare
 
 
 @pytest.fixture

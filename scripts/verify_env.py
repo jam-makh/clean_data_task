@@ -36,7 +36,7 @@ results: list[tuple[str, str, str]] = []
 ENV_FILE = Path(".env")
 
 # Duplicated deliberately rather than imported. The jar path now also lives in
-# src/spark/session.py, which puts it on the driver classpath, and the topic
+# src/spark/spark_setup.py, which puts it on the driver classpath, and the topic
 # arrives in config/pipeline.yaml with the Phase 07 event contract -- but this
 # script has to be able to report "your environment is broken" while the
 # environment is broken, and a diagnostic that imports the project cannot do

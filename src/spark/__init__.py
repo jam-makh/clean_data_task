@@ -1,24 +1,16 @@
 """
-The Spark half of the pipeline, and the harness that proves it agrees with
-the pandas half.
+The Spark half of the pipeline.
 
-Nothing in here cleans anything yet. What it provides is the two things the
-port needs before a single stage moves: one place that decides how a Spark
-session is configured, and one place that decides whether a Spark result and
-a pandas result are the same answer. Both exist first on purpose -- a port
-whose runtime semantics drift between entry points, or whose "it matches"
-claim is unfalsifiable, cannot be debugged after the fact.
+    spark_setup    session configuration, and reading the source as strings
+    spark_utils    shared column expressions and broadcast rule tables
+    pipeline       the orchestrator, and the ledger of what is ported
+    cleaners/      one module per stage, mirroring src/cleaners
 
-    session      how a SparkSession is configured, everywhere
-    source       reading a delimited file as strings, deciding nothing
-    sample       the subset the harness runs on, chosen rather than taken
-    parity       whether two frames say the same thing
-    pipeline     the Spark orchestrator, and the ledger of what is ported
+The parity harness that proves this agrees with the pandas half lives in
+``tests/harness`` -- it never runs in production.
 
-Deliberately re-exporting nothing. ``session.py`` holds a function called
-``session``, and importing it here would bind that name on the package and
-shadow the module it came from -- so ``src.spark.session`` would resolve to a
-function, and ``from src.spark import session as session_module`` would hand
-a caller the wrong object with no error at all. Importing from the modules
-themselves costs one more word and cannot do that.
+Deliberately re-exporting nothing. Several of these modules hold a function
+named after the module, and binding both names on the package makes the
+module name resolve to whichever was imported last, with no error at all.
+Importing from the modules themselves costs one more word and cannot do that.
 """

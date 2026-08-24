@@ -7,32 +7,63 @@ imports in Python" indirection -- because the parity harness runs the two
 side by side and any difference in how they are *driven* would show up as a
 difference in what they produce.
 
-The registry is empty. That is the Phase 01 state and it is a fact worth
-being able to read off a single line rather than infer from which files exist:
-``ported()`` is what the harness asks to decide how far down the profile it
-can compare, so a stage becomes tested by being registered here and by
-nothing else. Registering a stage that is not finished turns its parity test
-red immediately, which is the intended way round.
+The registry is the ledger, and it is a fact worth reading off one line rather
+than inferring from which files exist: ``ported()`` is what the harness asks to
+decide how far down a profile it can compare, so a stage becomes tested by
+being registered here and by nothing else. Registering a stage that is not
+finished turns its parity test red immediately, which is the intended way
+round.
 
-The step contract is ``BaseCleaner.apply``'s minus the report: a function of
-a DataFrame and the policy, returning a new DataFrame. What replaces the
-report -- diagnostic columns the stage marks and a single collection pass
-that counts them -- is Phase 02's decision, and stating it here before that
-phase has made it would be inventing an interface for code that does not
-exist.
+``forecast_balance`` is now ported end to end -- every step in that profile is
+below, so the cumulative parity test compares the whole pipeline rather than a
+prefix of it. ``transactions_v4`` is ported not at all, and deliberately: its
+first step is ``dates``, which is the v4 workbook's date handling and has no
+counterpart here.
+
+The step contract is ``BaseCleaner.apply``'s minus the report: a function of a
+DataFrame and the policy, returning a new DataFrame. What replaces the report
+is diagnostic columns the stage marks and a single collection pass that counts
+them -- the marks exist on every stage below; the pass that counts them does
+not exist yet.
 """
 
 from src.config.policy import Policy
 from src.config.policy import load as load_policy
+from src.spark.cleaners import (
+    amounts,
+    balance,
+    codes,
+    consistency,
+    duplicates,
+    geo,
+    macro,
+    mcc,
+    merchant,
+    missing,
+    timestamps,
+)
 
 # Step name to the thing that runs it, for the steps that have been ported.
 # The names are the ones ``config/pipeline.yaml`` profiles already use, so a
 # profile does not know or care which engine runs it.
 #
-# Phase 03 adds timestamps, codes, amounts, missing and geo.
-# Phase 04 adds merchant, mcc and macro.
-# Phase 05 adds duplicates, balance and consistency.
-SPARK_STEP_REGISTRY: dict[str, object] = {}
+# `dates` is deliberately absent and stays that way: it belongs to the v4
+# workbook profile, which is not being ported -- the source in hand is the
+# forecast_balance CSV, and sql/schema.sql scopes itself to it for the same
+# reason. With `consistency` the forecast_balance profile is ported end to end.
+SPARK_STEP_REGISTRY: dict[str, object] = {
+    "timestamps": timestamps.apply,
+    "macro": macro.apply,
+    "duplicates": duplicates.apply,
+    "codes": codes.apply,
+    "amounts": amounts.apply,
+    "balance": balance.apply,
+    "missing": missing.apply,
+    "merchant": merchant.apply,
+    "geo": geo.apply,
+    "mcc": mcc.apply,
+    "consistency": consistency.apply,
+}
 
 
 def ported(names) -> list[str]:
@@ -82,7 +113,7 @@ def run(frame, names, policy: Policy | None = None):
     Runs the named steps over a Spark frame, in order.
 
     :param frame: A Spark DataFrame, all columns string, from
-        ``src.spark.source.read_csv``.
+        ``src.spark.spark_setup.read_csv``.
     :param names: Step names in run order.
     :param policy: Resolved once here and handed to every step, for the reason
         ``TransactionCleaner`` gives: an executor resolving its own policy

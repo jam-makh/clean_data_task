@@ -19,8 +19,8 @@ import pytest
 from src.config import runtime
 from src.pipeline import TransactionCleaner, steps_for
 from src.spark import pipeline as spark_pipeline
-from src.spark.parity import assert_parity
-from src.spark.source import read_csv
+from tests.harness.parity import assert_parity
+from src.spark.spark_setup import read_csv
 
 
 @pytest.fixture(scope="session")
