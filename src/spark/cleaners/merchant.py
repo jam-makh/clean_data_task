@@ -66,6 +66,7 @@ from src.cleaners.merchant import (
     MerchantCleaner,
 )
 from src.rules import loader
+from src.spark import audit
 from src.spark import spark_utils as rule_tables
 from src.spark.spark_utils import chain, deaccent, strip, text
 
@@ -326,3 +327,56 @@ def apply(frame, policy):
         )
         .drop(name, "_merchant_kind", "_merchant_canonical")
     )
+
+
+def metrics(frame, policy):
+    """
+    How many names the master recognised, and what the rest were.
+
+    Six columns, all of them already on the row before this stage finished,
+    and none of them touched by anything downstream -- MCC resolution reads
+    the cleaned merchant name but never rewrites it.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; the master, the descriptors and the processor
+        whitelist are all vocabulary.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    if "MERCHANT_NAME_CLEANED" not in frame.columns:
+        return []
+
+    name = F.col("MERCHANT_NAME_CLEANED")
+    unknown = F.col("MERCHANT_KIND") == F.lit(UNIDENTIFIED)
+    return [
+        (
+            "matches_status.pending",
+            audit.rows(F.col("MATCHES_STATUS_CLEANED") == F.lit(PENDING)),
+        ),
+        (
+            "merchants_distinct",
+            audit.distinct(F.when(F.col("MERCHANT_RECOGNISED"), name)),
+        ),
+        (
+            "merchant.internal_movement_rows",
+            audit.rows(F.col("INTERNAL_MOVEMENT")),
+        ),
+        (
+            "merchant.internal",
+            audit.ranked(
+                F.when(F.col("INTERNAL_MOVEMENT"), name),
+                "merchant.internal[{}]",
+            ),
+        ),
+        ("merchant.unrecognised_rows", audit.rows(unknown)),
+        (
+            "merchant.unrecognised_names",
+            audit.distinct(F.when(unknown, name)),
+        ),
+        (
+            "processor_prefix_stripped",
+            audit.rows(
+                F.col("MERCHANT_PROCESSOR") != F.lit(UNKNOWN_PROCESSOR)
+            ),
+        ),
+        ("empty_after_clean", audit.rows(name == "")),
+    ]

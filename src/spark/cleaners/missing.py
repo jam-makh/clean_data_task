@@ -28,6 +28,7 @@ from src.cleaners.missing import (
     TERMINAL_SENTINEL,
     TIMESTAMP_COLUMNS,
 )
+from src.spark import audit
 from src.spark.spark_utils import chain, text
 
 
@@ -94,3 +95,57 @@ def apply(frame, policy):
         )
 
     return frame
+
+
+def metrics(frame, policy):
+    """
+    What was absent, unreadable, or planted.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; the repeat threshold decided the flag, and the flag
+        is what is counted.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    columns = set(frame.columns)
+    out = []
+
+    if "HAS_TERMINAL" in columns:
+        out.append((
+            "terminal_id.sentinel_rows", audit.rows(~F.col("HAS_TERMINAL"))
+        ))
+
+    if "AUTH_CODE_VALID" in columns:
+        out.append((
+            "auth_code.invalid_rows", audit.rows(~F.col("AUTH_CODE_VALID"))
+        ))
+        # How many *values* recur, not how many rows carry one. A single code
+        # planted on four hundred rows is one thing to chase.
+        out.append((
+            "auth_code.repeated_values",
+            audit.distinct(
+                F.when(F.col(REPEATED), text("AUTH_CODE"))
+            ),
+        ))
+
+    if "SETTLE_DATE_STATUS" in columns:
+        status = F.col("SETTLE_DATE_STATUS")
+        # The anomaly needs a transaction date to be anomalous against.
+        # Without one the check never ran, and reporting a zero would claim
+        # it did and found nothing.
+        if any(c in columns for c in TIMESTAMP_COLUMNS):
+            out.append((
+                "settle_date.anomalous",
+                audit.rows(status == F.lit("ANOMALOUS")),
+            ))
+        out.append((
+            "settle_date.missing", audit.rows(status == F.lit("MISSING"))
+        ))
+
+    for column in ("MERCHANT_CITY", "MERCHANT_COUNTRY"):
+        if column in columns:
+            out.append((
+                f"{column}.blank",
+                audit.rows(text(column) == "", nonzero=True),
+            ))
+
+    return out

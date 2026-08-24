@@ -33,6 +33,7 @@ implementation and is not made here.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
+from src.spark import audit
 from src.spark.spark_utils import text
 
 # How many byte-identical source rows this one row stands for. Normally 1.
@@ -110,3 +111,41 @@ def apply(
             F.concat(F.col(cleaned), F.lit("_"), sequence.cast("string")),
         ).otherwise(F.col(cleaned)),
     )
+
+
+def metrics(frame, policy):
+    """
+    What deduplication removed, and what it deliberately did not.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Read for the business-key definitions, which are a
+        judgement about which columns ought to identify a transaction and
+        live in ``config/policy.yaml`` with the reasoning that picked them.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    out = []
+    if COPIES in frame.columns:
+        # Every source row is accounted for: each survivor says how many it
+        # stands for, so the total minus the surviving rows is what was
+        # dropped. Stated as one aggregate rather than as a count taken
+        # before and after, because a count taken mid-run is the extra pass
+        # this whole contract exists to remove.
+        out.append((
+            "exact_duplicate_rows_dropped",
+            audit.Scalar(
+                F.coalesce(F.sum(F.col(COPIES)), F.lit(0))
+                - F.count(F.lit(1))
+            ),
+        ))
+
+    for keys in policy.duplicates.business_keys:
+        if set(keys).issubset(frame.columns):
+            out.append((
+                f"business_key_repeats[{'+'.join(keys)}]",
+                audit.shared(keys),
+            ))
+
+    if COLLISION in frame.columns:
+        out.append(("txn_id_collisions", audit.rows(F.col(COLLISION))))
+
+    return out

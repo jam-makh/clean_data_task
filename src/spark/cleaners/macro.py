@@ -24,8 +24,9 @@ clothes and would contradict the 236,045 values the file already gives.
 
 from pyspark.sql import functions as F
 
-from src.cleaners.macro import SERIES, TRUTHY
+from src.cleaners.macro import COVERAGE, SERIES, TRUTHY
 from src.rules import loader
+from src.spark import audit
 from src.spark import spark_utils as rule_tables
 from src.spark.spark_utils import chain, lookup, one_of, text
 
@@ -126,3 +127,29 @@ def apply(frame, policy):
         ).drop(recovered)
 
     return frame
+
+
+def metrics(frame, policy):
+    """
+    How each series' rows were covered, read off the coverage columns.
+
+    The coverage column was always the per-row statement; only the counting
+    moved. A series this stage could not join at all leaves no coverage
+    column, and so reports nothing rather than a row of zeros.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; a coverage state is a fact about the join.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    out = []
+    for source, _, _ in SERIES:
+        column = f"{source}_COVERAGE"
+        if column not in frame.columns:
+            continue
+        status = F.col(column)
+        for value in COVERAGE:
+            out.append((
+                f"{source}.{value.lower()}",
+                audit.rows(status == F.lit(value), nonzero=True),
+            ))
+    return out

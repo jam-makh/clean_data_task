@@ -56,6 +56,27 @@ ANSI_ENABLED = "false"
 # counted, not guessed -- is only enforceable under CORRECTED.
 TIME_PARSER_POLICY = "CORRECTED"
 
+# How long a freshly spawned Python worker gets to open its socket back to the
+# driver before Spark gives up on it. The default is 15s, which is generous on
+# Linux and tight here: `local[*]` spawns one worker per core at once, Windows
+# process creation is slow, and there is no Unix-domain-socket path on this
+# platform -- Spark 4's `spark.python.unix.domain.socket.enabled` is a POSIX
+# option, so every worker goes through loopback TCP. A cold start under that
+# contention overruns 15s and the worker is killed mid-handshake, which
+# surfaces as CANNOT_OPEN_SOCKET followed by "Python worker exited
+# unexpectedly" -- an infrastructure failure wearing the costume of a job
+# failure. Raised rather than removed: a worker that genuinely cannot connect
+# should still fail, just not one that was merely slow to start.
+WORKER_SOCKET_TIMEOUT = "120"
+
+# What a crashed Python worker reports on its way out. Without this the JVM can
+# only say "exited unexpectedly (crashed)", because the worker died before it
+# could send anything back -- the Python-side traceback is lost with the
+# process. With it, faulthandler dumps that traceback into the executor log.
+# On permanently, not just while debugging: this failure mode is invisible by
+# construction, and the cost is a signal handler installed per worker.
+WORKER_FAULTHANDLER = "true"
+
 # Attached when present rather than required, so a session built by a test and
 # one built by the pipeline reach the same jars.
 JARS_DIR = Path("jars")
@@ -140,6 +161,10 @@ def settings(**overrides) -> dict[str, str]:
         # stops sessions then spends its time on port conflicts and firewall
         # prompts instead of on tests.
         "spark.ui.enabled": "false",
+        # Both concern the Python worker processes rather than the JVM, and
+        # both exist because a worker that dies is otherwise unattributable.
+        "spark.python.authenticate.socketTimeout": WORKER_SOCKET_TIMEOUT,
+        "spark.python.worker.faulthandler.enabled": WORKER_FAULTHANDLER,
     }
 
     jars = sorted(JARS_DIR.glob("*.jar")) if JARS_DIR.is_dir() else []

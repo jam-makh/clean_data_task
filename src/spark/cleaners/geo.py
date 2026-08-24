@@ -16,8 +16,9 @@ where UNKNOWN reads as a fact that was checked.
 
 from pyspark.sql import functions as F
 
-from src.cleaners.geo import UNKNOWN
+from src.cleaners.geo import LOCATION_TYPES, UNKNOWN
 from src.rules import loader
+from src.spark import audit
 from src.spark.spark_utils import chain, lookup, one_of, text
 
 
@@ -90,3 +91,53 @@ def apply(frame, policy):
             otherwise=F.lit(UNKNOWN),
         ),
     )
+
+
+def metrics(frame, policy):
+    """
+    How many spellings collapsed, and how much geography survived.
+
+    This stage adds no diagnostic column of its own, because it already had
+    four. ``LOCATION_TYPE``, ``IS_ECOMMERCE``, ``MERCHANT_COUNTRY_EXPECTED``
+    and the cleaned city each state per row what the totals below are totals
+    of, and ``MERCHANT_CITY`` is a raw column no stage overwrites -- so the
+    count of distinct spellings before cleaning is still readable at the end
+    of the run.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; every table this stage reads is vocabulary.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    if "MERCHANT_CITY_CLEANED" not in frame.columns:
+        return []
+
+    city = F.col("MERCHANT_CITY_CLEANED")
+    kind = F.col("LOCATION_TYPE")
+    out = [
+        (
+            "cities_distinct_before",
+            audit.distinct(F.upper(text("MERCHANT_CITY"))),
+        ),
+        ("cities_distinct_after", audit.distinct(city)),
+        ("city.unknown", audit.rows(city == F.lit(UNKNOWN))),
+        ("ecommerce_rows", audit.rows(F.col("IS_ECOMMERCE"))),
+    ]
+
+    for value in LOCATION_TYPES:
+        out.append((
+            f"location_type.{value.lower()}",
+            audit.rows(kind == F.lit(value), nonzero=True),
+        ))
+
+    out.append((
+        "city.not_in_country_reference",
+        audit.rows(
+            (kind == F.lit("PHYSICAL"))
+            & (F.col("MERCHANT_COUNTRY_EXPECTED") == "")
+        ),
+    ))
+    out.append((
+        "country.unknown",
+        audit.rows(F.col("MERCHANT_COUNTRY_CLEANED") == F.lit(UNKNOWN)),
+    ))
+    return out

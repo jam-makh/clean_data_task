@@ -20,6 +20,7 @@ notice.
 from pyspark.sql import functions as F
 
 from src.rules import loader
+from src.spark import audit
 from src.spark.spark_utils import lookup, text, zfill
 
 
@@ -70,3 +71,75 @@ def apply(frame, policy, mcc_reference: dict | None = None):
         )
 
     return frame
+
+
+# What ``Categorical.astype(str)`` spells a null as, and the reason the
+# disagreement count below is not simply a string comparison: an unclassified
+# code's cleaned type is null, pandas reads that back as the text ``"nan"``,
+# and ``"nan"`` disagrees with whatever the source wrote. Reproducing the
+# spelling reproduces the count.
+_NULL_AS_TEXT = "nan"
+
+
+def metrics(frame, policy, mcc_reference: dict | None = None):
+    """
+    What the reference could not classify, and where the source contradicts it.
+
+    Every count here reads either a column this stage wrote or a raw column,
+    and a raw column is never overwritten by any stage, so reading one at the
+    end of the run gives exactly what reading it during the stage would have.
+    That is what lets this stage add no provenance column of its own: the
+    provenance is the source value, still sitting there.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Read for the MCC field width, for the same reason
+        ``apply`` reads it.
+    :param mcc_reference: The reference the run was given, if any. Empty by
+        default and empty in practice on this path -- a delimited source
+        carries no reference sheet -- in which case ``mcc.not_in_reference``
+        is not reported at all rather than reported as every row.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    columns = set(frame.columns)
+    out = []
+
+    if "PROCESSING_CODE_CLEANED" in columns:
+        known = loader.processing_codes()
+        out.append((
+            "processing_code.unknown",
+            audit.rows(
+                ~F.coalesce(
+                    F.col("PROCESSING_CODE_CLEANED").isin(*sorted(known)),
+                    F.lit(False),
+                )
+            ),
+        ))
+        if "PROCESSING_TYPE" in columns:
+            resolved = F.coalesce(
+                F.col("PROCESSING_TYPE_CLEANED"), F.lit(_NULL_AS_TEXT)
+            )
+            out.append((
+                "processing_type.disagrees_with_code",
+                audit.rows(
+                    (text("PROCESSING_TYPE") != resolved) & (resolved != "")
+                ),
+            ))
+
+    if "MCC_CODE" in columns:
+        if mcc_reference and "MCC_CATEGORY" in columns:
+            out.append((
+                "mcc.not_in_reference",
+                audit.rows(F.col("MCC_CATEGORY") == ""),
+            ))
+        # From the raw column, not MCC_CODE_CLEANED: the ``mcc`` stage adopts
+        # its suggestions into that column later in the run, so counting it
+        # at the end would answer "how many codes did we publish" where this
+        # metric asks "how many did the source distinguish".
+        out.append((
+            "mcc.distinct",
+            audit.distinct(
+                zfill(text("MCC_CODE"), policy.codes.mcc_width)
+            ),
+        ))
+
+    return out

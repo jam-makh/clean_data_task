@@ -26,6 +26,7 @@ half-to-even one.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
+from src.spark import audit
 from src.spark.spark_utils import chain as when_chain
 
 # What is known about each row's balance. See src/cleaners/balance.py for what
@@ -334,3 +335,82 @@ def apply(
     return frame.drop(
         *[c for c in frame.columns if c.startswith(_SCRATCH)]
     )
+
+
+def metrics(
+    frame,
+    policy,
+    amount_col: str = "TXN_AMOUNT_CLEANED",
+    sequence_col: str = "TXN_SEQ",
+    group_col: str = "ACCOUNT_ID",
+):
+    """
+    The state counts, the breaks left in the published series, and, when the
+    arithmetic rejects part of the file, where that part begins and how much
+    of the book it touches.
+
+    The boundary is reported rather than configured. It is the finding -- "the
+    source changed behaviour here" -- and a finding belongs in the report,
+    where someone can act on it upstream, not in a constant that quietly
+    encodes it as normal.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; the tolerance decided the states, and the states
+        are what is counted.
+    :param amount_col: What moved the balance, read back to find the holes.
+    :param sequence_col: The source's own global ordering.
+    :param group_col: The account a balance belongs to.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    if STATUS not in frame.columns:
+        return []
+
+    # An unreadable amount is a hole in the running total. Read back off the
+    # cleaned column, which no stage after this one writes to, so the answer
+    # is the one the arithmetic actually worked from.
+    out = [(
+        "amount.unreadable",
+        audit.rows(F.col(amount_col).cast("double").isNull()),
+    )]
+
+    status = F.col(STATUS)
+    for state in STATUSES:
+        out.append((
+            f"status[{state}]", audit.rows(status == F.lit(state))
+        ))
+
+    adjusted = F.col(ADJUSTED_STATUS)
+    for state in ADJUSTED_STATUSES:
+        out.append((
+            f"adjusted[{state}]", audit.rows(adjusted == F.lit(state))
+        ))
+
+    # What the second column buys: rows the published one leaves blank and
+    # this one can state. Reported next to the contradicted count so the gain
+    # is never read without the cost beside it.
+    out.append((
+        "adjusted.fills_a_withheld_row",
+        audit.rows(F.col(CLEANED).isNull() & F.col(ADJUSTED).isNotNull()),
+    ))
+    out.append(("chain.breaks", audit.rows(F.col(CHAIN_BREAK))))
+
+    # Null -- and therefore not reported at all -- when nothing was rejected,
+    # which is the pandas ``if rejected.any():`` guard arrived at without a
+    # second pass to ask the question.
+    rejected = status == F.lit("CONTRADICTED")
+    out.append((
+        "contradicted.first_seq",
+        audit.minimum(F.when(rejected, F.col(sequence_col).cast("long"))),
+    ))
+    # How wide the rejection is, next to where it starts -- one account
+    # rejected wholesale and every account rejected in places are different
+    # findings and the boundary alone cannot tell them apart. Suppressed at
+    # zero, which is the pandas ``if rejected.any():`` guard reached from the
+    # other side: no rejected rows means no distinct accounts among them.
+    out.append((
+        "contradicted.accounts",
+        audit.distinct(
+            F.when(rejected, F.col(group_col)), nonzero=True
+        ),
+    ))
+    return out

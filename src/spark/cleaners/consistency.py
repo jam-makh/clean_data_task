@@ -35,6 +35,7 @@ from pyspark.sql import functions as F
 
 from src.cleaners.codes import REFUND_LABEL
 from src.rules import loader
+from src.spark import audit
 from src.spark.spark_utils import lookup, text
 
 FLAGS = "VALIDATION_FLAGS"
@@ -52,10 +53,17 @@ def _flag(condition):
     return F.coalesce(condition, F.lit(False))
 
 
-def apply(frame, policy):
+def checks(frame, policy) -> list[tuple[str, object]]:
     """
-    Asserts that the redundant encodings still agree, and records where they
-    do not.
+    The checks this run makes, in the order it makes them.
+
+    Built here rather than inside ``apply`` so that the counting pass can ask
+    the same question and get the same answer. The pandas original keeps the
+    list on the instance and the report reads it back off there; the list is a
+    pure function of which columns are present and which the policy requires,
+    so deriving it twice is the same thing as remembering it once -- and it is
+    the derivation that has to be shared, since a check missing from the
+    report and a check that never ran look identical.
 
     :param frame: Frame as the earlier stages left it. Each check runs only
         where its columns are present -- a run over a source with no FX_RATE
@@ -64,11 +72,10 @@ def apply(frame, policy):
     :param policy: Read for the required-column list and both FX tolerances,
         each of which is a judgement about how strict this pipeline should be
         rather than a fact about the data.
-    :returns: The frame with ``VALIDATION_FLAGS`` written.
+    :returns: ``(code, condition)`` in the order the checks are made, because
+        the flags column is a joined string and the order is visible in it.
     """
     columns = set(frame.columns)
-    # (code, condition) in the order the checks are made, because the flags
-    # column is a joined string and the order is visible in it.
     checks: list[tuple[str, object]] = []
 
     for column in policy.validation.required_columns:
@@ -159,21 +166,62 @@ def apply(frame, policy):
             )
         )
 
+    return checks
+
+
+def apply(frame, policy):
+    """
+    Asserts that the redundant encodings still agree, and records where they
+    do not.
+
+    :param frame: Frame as the earlier stages left it.
+    :param policy: Handed straight to ``checks``.
+    :returns: The frame with ``VALIDATION_FLAGS`` written.
+    """
     # One expression per check rather than one per flagged row. The leading
     # separator is trimmed at the end instead of being conditional per row,
     # which is the same string for a fraction of the work.
     joined = (
         F.coalesce(F.col(FLAGS), F.lit(""))
-        if FLAGS in columns
+        if FLAGS in frame.columns
         else F.lit("")
     )
-    for code, condition in checks:
+    for code, condition in checks(frame, policy):
         joined = F.concat(
             joined,
             F.when(_flag(condition), F.lit(f";{code}")).otherwise(F.lit("")),
         )
 
     return frame.withColumn(FLAGS, F.regexp_replace(joined, "^;+", ""))
+
+
+def metrics(frame, policy):
+    """
+    One total per check, including the checks that found nothing.
+
+    The flags column is the diagnostic column here, and it has been one all
+    along -- this stage already wrote its findings per row. Only the counting
+    moved.
+
+    The check list is rebuilt from the finished frame rather than remembered
+    from the run, which is exact for one reason worth stating: this stage runs
+    last and adds exactly one column, ``VALIDATION_FLAGS``, which no check
+    keys on. The columns it sees here are therefore the columns it saw then.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Handed straight to ``checks``.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    if FLAGS not in frame.columns:
+        return []
+
+    flags = F.col(FLAGS)
+    out = [
+        (code, audit.rows(audit.carries(flags, code)))
+        for code, _ in checks(frame, policy)
+    ]
+    out.append(("rows_with_any_flag", audit.rows(flags != "")))
+    return out
 
 
 def _type_as_text():

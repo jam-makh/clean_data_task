@@ -53,13 +53,16 @@ from src.cleaners.timestamps import (
     MONTH_FIRST,
     MONTH_FIRST_DATE,
     NULL_TOKEN,
+    PRECISIONS,
     SETTLE_FORMAT,
+    STATUSES,
     TS_FORMAT,
     TS_SLASH,
     UNPARSEABLE,
     UNRECOGNISED,
 )
 from src.rules import loader
+from src.spark import audit
 from src.spark.spark_utils import chain, one_of, text
 
 INPUT = "TXN_DATE_TIME"
@@ -623,3 +626,96 @@ def apply(frame, policy):
     return frame.drop(
         *[c for c in frame.columns if c.startswith(_SCRATCH)]
     )
+
+
+def metrics(frame, policy):
+    """
+    This stage's report rows, derived from the columns it marked.
+
+    Every count here reads a column that is still on the finished frame, and
+    nothing downstream of ``timestamps`` writes to any of them, so counting at
+    the end of the run gives the same answer as counting here would have.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; every question below is about what happened, not
+        about what should have.
+    :returns: ``(metric, request)`` pairs in the order the report reads them.
+    """
+    columns = set(frame.columns)
+    out = []
+
+    if TS_SLASH in columns:
+        route = F.col(TS_SLASH)
+        out.append((
+            "txn_ts.slash_forced_month_first",
+            audit.rows(route == F.lit(FORCED_MONTH_FIRST)),
+        ))
+        out.append((
+            "txn_ts.slash_forced_day_first",
+            audit.rows(route == F.lit(FORCED_DAY_FIRST)),
+        ))
+        # Which oracles this run was able to consult, read off the frame
+        # rather than remembered from the run. The pandas original keeps the
+        # list on the instance and appends to it as each pass runs, which
+        # differs in one case only: an oracle reached with no rows left open
+        # is recorded there and not here. It cannot be told apart from an
+        # oracle that settled nothing, and both report zero.
+        for column, context in MACRO_ORACLES:
+            if column in columns and set(context) <= columns:
+                out.append((
+                    f"txn_ts.slash_resolved_by[{column}]",
+                    audit.rows(route == F.lit(f"MACRO[{column}]")),
+                ))
+        out.append((
+            "txn_ts.slash_bracket_month_first",
+            audit.rows(route == F.lit(BRACKET_MONTH_FIRST)),
+        ))
+        out.append((
+            "txn_ts.slash_bracket_day_first",
+            audit.rows(route == F.lit(BRACKET_DAY_FIRST)),
+        ))
+
+    if TS_FORMAT in columns:
+        out.append((
+            "txn_ts.unrecognised_format",
+            audit.rows(F.col(TS_FORMAT) == F.lit(UNRECOGNISED)),
+        ))
+
+    if "TXN_TS_STATUS" in columns:
+        status = F.col("TXN_TS_STATUS")
+        for value in STATUSES:
+            out.append((
+                f"txn_ts.status[{value}]", audit.rows(status == F.lit(value))
+            ))
+
+        out.append(("txn_ts.unparseable", audit.rows(F.col("TXN_TS").isNull())))
+        out.append((
+            "txn_ts.offset_applied",
+            audit.rows(F.col("TXN_TS_SOURCE") == F.lit("OFFSET_APPLIED")),
+        ))
+        out.append((
+            "txn_ts.ambiguous_day_month",
+            audit.rows(F.col("TXN_TS_AMBIGUOUS")),
+        ))
+        precision = F.col("TXN_TS_PRECISION")
+        for value in PRECISIONS:
+            out.append((
+                f"txn_ts.precision[{value}]",
+                audit.rows(precision == F.lit(value)),
+            ))
+
+    if SETTLE_FORMAT in columns:
+        blanks = F.col(SETTLE_FORMAT) == F.lit(NULL_TOKEN)
+        out.append(("settle_date.null_token", audit.rows(blanks)))
+        # Everything null that the source did not declare null, as one
+        # expression rather than two counts subtracted on the driver -- the
+        # driver never sees either half. Taken from the value column rather
+        # than the label, so a rule that matched a shape and then failed on
+        # the value is counted here rather than credited to the rule.
+        unreadable = audit.rows(F.col("SETTLE_DATE_CLEANED").isNull())
+        out.append((
+            "settle_date.unparseable",
+            audit.Scalar(unreadable.aggregate - audit.rows(blanks).aggregate),
+        ))
+
+    return out

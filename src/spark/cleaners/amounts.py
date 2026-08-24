@@ -46,6 +46,7 @@ from src.cleaners.amounts import (
 )
 from src.rules import loader
 from src.rules.loader import CREDIT
+from src.spark import audit
 from src.spark.spark_utils import chain, lookup, one_of, text
 
 FLAGS = "VALIDATION_FLAGS"
@@ -273,3 +274,43 @@ def apply(frame, policy):
         )
 
     return _restore_signs(frame, policy)
+
+
+def metrics(frame, policy):
+    """
+    How every amount was read, and where every sign came from.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; the currency judgement lives in
+        ``currencies.json`` for the reason ``apply`` gives.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    columns = set(frame.columns)
+    out = []
+
+    for source in AMOUNT_COLUMNS:
+        column = coercion_column(source)
+        if column not in columns:
+            continue
+        read = F.col(column)
+        out.append((
+            f"{source}.unparseable", audit.rows(read == F.lit(UNPARSEABLE))
+        ))
+        out.append((
+            f"{source}.reformatted", audit.rows(read == F.lit(REFORMATTED))
+        ))
+
+    if DIRECTION in columns:
+        out.append((
+            "sign.code_without_direction",
+            audit.rows(F.col(DIRECTION) == F.lit(UNDECLARED)),
+        ))
+        for source, target in AMOUNT_COLUMNS.items():
+            column = sign_column(source)
+            if column in columns:
+                out.append((
+                    f"{target}.sign_restored",
+                    audit.rows(F.col(column) == F.lit(RESTORED)),
+                ))
+
+    return out

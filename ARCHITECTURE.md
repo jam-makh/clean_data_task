@@ -103,7 +103,7 @@ absorbed, and `sum(copies) - len(df)` is what was dropped. In Spark that is one
 These are on the frame, not on the cleaned sheet — the sheet states the cleaned
 row, and a column saying how a value was arrived at is a second reading of the
 column beside it. `AUDIT_COLUMNS` in `utils/columns.py` is the list that
-persists to the database, which is where "why does this row look like this" is
+answers "why does this row look like this", which is
 the question actually being asked.
 
 ---
@@ -984,8 +984,7 @@ Everything a stage derives that is not a cleaned counterpart — statuses,
 confidences, precisions, coverage flags, the projected balance — answers a
 different question, *how do you know*, and is answered in two other places
 instead: the totals in `cleaning_report`, and the per-row detail in
-`AUDIT_COLUMNS`, which is what reaches the database in Stage 2. Nothing is
-discarded; `INTERNAL` in `utils/columns.py` is a list of what the writer
+`AUDIT_COLUMNS`. Nothing is discarded; `INTERNAL` in `utils/columns.py` is a list of what the writer
 hides, not of what the pipeline forgets.
 
 One exception, and it is not really one: `TXN_TS_PRECISION` passes through to

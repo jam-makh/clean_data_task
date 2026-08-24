@@ -41,8 +41,9 @@ from collections import Counter
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 
-from src.cleaners.mcc import HIGH, SIGNAL, MccResolver
+from src.cleaners.mcc import CONFIDENCE_ORDER, HIGH, SIGNAL, MccResolver
 from src.rules import loader
+from src.spark import audit
 from src.spark.spark_utils import text
 
 FLAGS = "VALIDATION_FLAGS"
@@ -300,3 +301,48 @@ def _apply_deterministic(frame, rules: dict):
             .drop(marker)
         )
     return frame
+
+
+def metrics(frame, policy):
+    """
+    Which rule decided each code, and how much of the file rests on a guess.
+
+    :param frame: The frame as the last stage left it.
+    :param policy: Unused; the thresholds decided the tiers, and the tiers are
+        what is counted.
+    :returns: ``(metric, request)`` pairs in report order.
+    """
+    if CONFIDENCE not in frame.columns:
+        return []
+
+    out = []
+    flags = F.col(FLAGS) if FLAGS in frame.columns else F.lit("")
+    for rule in loader.mcc_rules().get("deterministic", []):
+        # A rule whose trigger column is absent never ran, and reporting a
+        # zero for it would claim it did.
+        if rule["when_column"] in frame.columns:
+            out.append((
+                rule["flag"], audit.rows(audit.carries(flags, rule["flag"]))
+            ))
+
+    confidence = F.col(CONFIDENCE)
+    for tier in CONFIDENCE_ORDER:
+        out.append((
+            f"confidence[{tier}]",
+            audit.rows(confidence == F.lit(tier), nonzero=True),
+        ))
+
+    # Reported so the provenance the three tiers no longer distinguish stays
+    # measurable: how many rows rest on a human assertion rather than on a
+    # heuristic.
+    if SIGNAL in frame.columns:
+        signal = F.col(SIGNAL)
+        out.append((
+            "signal",
+            audit.ranked(F.when(signal != "", signal), "signal[{}]"),
+        ))
+
+    adopted = audit.rows(F.col(SUGGESTED) != "")
+    out.append(("rows_with_suggestion", adopted))
+    out.append(("mcc_code.reassigned", adopted))
+    return out

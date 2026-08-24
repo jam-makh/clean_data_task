@@ -11,7 +11,7 @@ PYTHON ?= python
 # Deletions go through Python rather than `find`/`rm -rf` for the same reason:
 # those are sh-only, and Python is guaranteed present in a Python project.
 
-.PHONY: help run test test-fast parity sample verify clean clean-pyc clean-build
+.PHONY: help run test test-fast parity sample verify db-migrate db-reset clean clean-pyc clean-build
 
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
@@ -47,6 +47,20 @@ sample:
 # Does this machine run the Stage 2 stack? Every failure names its own fix.
 verify:
 	$(PYTHON) -m scripts.verify_env
+
+# Create cleaned_transactions, its indexes and the staging table. Idempotent --
+# every statement is IF NOT EXISTS -- so running it against a database that is
+# already set up does nothing. The writer calls it before each run too; this
+# target is for setting a fresh container up without running the pipeline.
+db-migrate:
+	$(PYTHON) -c "from src.db import migrate, settings; migrate.migrate(settings.load()); print('schema applied')"
+
+# Drop both tables and rebuild them. This is how a column added to
+# sql/schema.sql reaches a database that already exists, because IF NOT EXISTS
+# will not alter a table it finds. Destructive, and separate from db-migrate
+# for that reason.
+db-reset:
+	$(PYTHON) -c "from src.db import migrate, settings; migrate.recreate(settings.load()); print('schema rebuilt')"
 
 # Remove Python bytecode caches, skipping the virtualenv
 clean-pyc:

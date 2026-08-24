@@ -55,10 +55,10 @@ SUPERSEDED = {
 # Nothing here is discarded. Each one stays on the frame for the rest of the
 # run, each one's totals are in `cleaning_report` -- how many merchants
 # resolved, how many rows were internal transfers, how many balances were
-# derived rather than stated -- and each one is in AUDIT_COLUMNS below, which
-# is what reaches the database in Stage 2. The question a status column
-# answers is "how do you know", and that question is answered in the report
-# and in the audit trail rather than in a second column on the sheet.
+# derived rather than stated -- and each one is in AUDIT_COLUMNS below. The
+# question a status column answers is "how do you know", and that question is
+# answered in the report and in the audit trail rather than in a second column
+# on the sheet.
 #
 # The three groups, and why each is not a cleaned column:
 #
@@ -148,8 +148,7 @@ INTERNAL = [
     # saying how the value was arrived at is a second reading of the column
     # beside it. That is a decision about this presentation, not about the
     # data -- they stay on the frame throughout, and AUDIT_COLUMNS below is
-    # the list that persists to the database, where the question "why does
-    # this row look like this" is the one being asked.
+    # the list that answers "why does this row look like this".
     "TXN_DATE_TIME_FORMAT",
     "SETTLE_DATE_FORMAT",
     "TXN_TS_FORMAT",
@@ -164,8 +163,14 @@ INTERNAL = [
     "MCC_SIGNAL",
 ]
 
-# The audit trail as it is written to the database in Stage 2, and the answer
-# to requirement 7 at the cleaning boundary.
+# The audit trail, and the answer to requirement 7 at the cleaning boundary.
+#
+# Not currently persisted. `sql/schema.sql` carries the cleaned columns plus
+# the provenance a run needs to be reconciled against its own completion event
+# -- sync_job_id and cleaned_at -- and stops there, because these 35 were not
+# asked for at the database boundary. They stay on the frame and reach the
+# workbook, and a table for them can be added later; the write path is
+# `src/db/contract.py`, which is one list away from carrying them.
 #
 # The split this list encodes is between the two questions a stored row has to
 # answer. The cleaned columns answer "what is this transaction". These answer
