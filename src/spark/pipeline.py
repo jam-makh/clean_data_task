@@ -138,7 +138,7 @@ def steps_for(names) -> list:
     return [SPARK_STEP_REGISTRY[n] for n in names]
 
 
-def run(frame, names, policy: Policy | None = None):
+def run(frame, names, policy: Policy | None = None, listener=None):
     """
     Runs the named steps over a Spark frame, in order.
 
@@ -150,13 +150,34 @@ def run(frame, names, policy: Policy | None = None):
         would be reading a file that may not be on the machine it is running
         on. Loaded eagerly when absent so a malformed policy fails before the
         first row moves.
+    :param listener: Something to tell about each step as it runs -- normally
+        a ``src.spark.stagelog.StageLog``. Two methods, ``starting(name,
+        position, total)`` and ``finished(name, frame)``, and None turns the
+        whole thing off.
+
+        A hook rather than a print, because what this loop does must not
+        depend on whether anyone is watching: the batch run wants eleven
+        stages and no output, the consumer wants to narrate every one, and a
+        log level inside the loop would make those the same code path with a
+        flag in it. With no listener this is the function it was before, which
+        is what keeps the parity harness comparing cleaning rather than
+        logging.
+
+        Be aware that a listener which counts rows forces a Spark action per
+        step -- see ``stagelog`` -- so passing one changes what the run costs,
+        not what it produces.
     :returns: The transformed frame. With no names, the frame unchanged --
         which is what makes the harness's "compare the raw read" case a real
         comparison rather than a special case.
     """
     policy = policy if policy is not None else load_policy()
-    for step in steps_for(names):
+    total = len(names)
+    for position, (name, step) in enumerate(zip(names, steps_for(names)), 1):
+        if listener is not None:
+            listener.starting(name, position, total)
         frame = step(frame, policy)
+        if listener is not None:
+            listener.finished(name, frame)
     return frame
 
 

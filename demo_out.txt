@@ -1,0 +1,54 @@
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+C:\Users\MY-PC\cleaning_task\.venv\Lib\site-packages\pyspark\testing\utils.py:127: FutureWarning: PySpark does not yet fully support pandas >= 3.0.0. Some features may not work correctly. It is recommended to use pandas < 3.0.0 for now.
+  require_minimum_pandas_version()
+C:\Users\MY-PC\cleaning_task\.venv\Lib\site-packages\pyspark\sql\pandas\functions.py:777: FutureWarning: PySpark does not yet fully support pandas >= 3.0.0. Some features may not work correctly. It is recommended to use pandas < 3.0.0 for now.
+  require_minimum_pandas_version()
+C:\Users\MY-PC\cleaning_task\.venv\Lib\site-packages\pyspark\sql\pandas\typehints.py:60: FutureWarning: PySpark does not yet fully support pandas >= 3.0.0. Some features may not work correctly. It is recommended to use pandas < 3.0.0 for now.
+  require_minimum_pandas_version()
+
++- raw ids 21,22 | job demo --------------------------------
+| [INGESTION    ] read raw_transactions          2 rows
+| [NORMALIZATION] timestamps                     2 rows  17.95s
+|     txn_ts.status[OBSERVED] = 1
+|     txn_ts.status[TIME_UNKNOWN] = 1
+|     txn_ts.offset_applied = 1
+|     txn_ts.precision[SECOND] = 1
+|     txn_ts.precision[DAY] = 1
+| [ENRICHMENT   ] macro                          2 rows 125.20s
+|     INTEREST_RATE_INDEX.observed = 1
+|     INTEREST_RATE_INDEX.recovered = 1
+|     INFLATION_INDEX.observed = 1
+|     INFLATION_INDEX.recovered = 1
+|     IS_HOLIDAY_MONTH.observed = 1
+|     IS_HOLIDAY_MONTH.recovered = 1
+| [DEDUPLICATION] duplicates                     2 rows   2.88s
+| [NORMALIZATION] codes                          2 rows   1.47s
+|     processing_type.disagrees_with_code = 2
+|     mcc.distinct = 2
+| [NORMALIZATION] amounts                        2 rows   1.96s
+| [DERIVATION   ] balance                        2 rows   5.66s
+|     status[UNKNOWN] = 2
+|     adjusted[NO_ANCHOR] = 2
+| [NORMALIZATION] missing                        2 rows   3.11s
+| [ENRICHMENT   ] merchant                       2 rows  93.26s
+|     merchants_distinct = 2
+| [ENRICHMENT   ] geo                            2 rows   4.72s
+|     cities_distinct_before = 2
+|     cities_distinct_after = 2
+|     location_type.physical = 2
+| [ENRICHMENT   ] mcc                            2 rows  51.49s
+|     confidence[HIGH] = 2
+|     signal[consistent] = 1
+|     signal[curated] = 1
+| [VALIDATION   ] consistency                    2 rows   9.85s
+|     CODE_TYPE_MISMATCH = 2
+|     rows_with_any_flag = 2
+| [PERSISTENCE  ] upsert cleaned_transactions (skipped)       2 rows
++- 2 rows cleaned in 317.5s --------------------------
+TOTAL 320.4s
+SUCCESS: The process with PID 15964 (child process of PID 22812) has been terminated.
+SUCCESS: The process with PID 22812 (child process of PID 30972) has been terminated.
+SUCCESS: The process with PID 30972 (child process of PID 40832) has been terminated.
