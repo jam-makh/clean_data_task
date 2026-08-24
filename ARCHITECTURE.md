@@ -26,6 +26,7 @@ never drift.
 - [Five rules that apply everywhere](#five-rules-that-apply-everywhere)
 - [Adding a stage](#adding-a-stage)
 - [Adding a rule file](#adding-a-rule-file)
+- [The parity harness](#the-parity-harness)
 
 ---
 
@@ -998,3 +999,119 @@ The orchestrator needs no edit — it holds steps in a list and runs them.
 The staleness guards matter most: `merchants.json` keys match *cleaned* names,
 which shift as `MerchantCleaner` improves, so a dead entry must fail a test
 rather than silently do nothing.
+
+---
+
+## The parity harness
+
+The cleaning stages are being ported to Spark. The harness is what makes that
+survivable: after every stage, a machine checks that the two engines give the
+same answer, on a sample chosen for the cases the stages actually get wrong.
+
+Four modules under `src/spark/`, none of which cleans anything:
+
+| Module | Answers |
+|---|---|
+| `session.py` | how a `SparkSession` is configured, everywhere |
+| `source.py` | how a delimited file is read, deciding nothing |
+| `sample.py` | which rows the harness runs on |
+| `parity.py` | whether two frames say the same thing |
+| `pipeline.py` | which stages are ported, and in what order they run |
+
+### The session states its semantics rather than inheriting them
+
+Four settings change *answers* rather than speed, and all four are written
+down even where the written value equals today's default:
+
+| Setting | Value | Because |
+|---|---|---|
+| `spark.sql.session.timeZone` | `UTC` | every parsed timestamp is read in it, so an unset one makes the output a property of the laptop |
+| `spark.sql.ansi.enabled` | `false` | ANSI is on by default in Spark 4 and makes a bad cast *raise*; this pipeline counts bad casts |
+| `spark.sql.legacy.timeParserPolicy` | `CORRECTED` | the strict parser yields null instead of coaxing a date out of `2022-13-45` |
+| `spark.sql.shuffle.partitions` | `8` | 200 tasks over 265k rows is scheduling overhead with a job attached |
+
+Inheriting a default is a bet that it will not change between versions, and
+two of these have already changed once.
+
+### The reader decides nothing
+
+Same discipline as `utils/io.py`, for the same reason: `inferSchema` would
+sample the file, guess a type, and coerce on the way in — which pre-empts the
+coercion the pipeline is required to perform explicitly and count. Every
+column arrives as a string, and every type in the output is a cast some stage
+made on purpose.
+
+The schema is derived from the file's own header rather than written out as 22
+literal names, and the file is then read with `enforceSchema=false` — so Spark
+compares the header it finds against the schema it was given and refuses a
+file whose columns moved. Under the default it would apply the schema by
+position and hand every stage the column to the left of the one it asked for.
+
+### The sample is chosen, not taken
+
+The first 500 rows are not a sample, they are January. Two properties decide
+the design:
+
+**It samples accounts, not rows.** `BalanceReconstructor` works over
+`ACCOUNT_ID` ordered by `TXN_SEQ`. Take every third row and every chain
+breaks, every gap becomes unclosable, and the stage reports `UNVERIFIED` where
+the real run reports `DERIVED` — in *both* engines, so the comparison passes
+having proved nothing. A selected account brings all of its rows.
+
+**The accounts are chosen for what they contain:** the widest `TXN_SEQ` spans
+(the accounts that cross the balance seam), the narrowest (the ones that live
+on one side of it), accounts naming a trap-pair merchant, a greedy cover of
+the distinct `TXN_DATE_TIME` shapes, and the accounts withholding the most
+balances — then a deterministic fill.
+
+Deterministic rules out `hash()`, which is salted per process, and
+`DataFrame.sample`, whose seeding is a numpy detail. The fill orders accounts
+by a SHA-256 of the account id. The same source file produces the same 16
+accounts and the same 11,417 rows on every machine — the same requirement the
+upsert key carries, for the same reason: a sample that drifts turns one
+failing stage into a bug report nobody can reproduce.
+
+### What counts as a difference
+
+The whole design problem is the line between a real divergence and a
+difference in representation, and it is drawn once here so no stage's test
+has to draw it again.
+
+| Not a finding | Is a finding |
+|---|---|
+| row order — Spark's is a function of partitioning | a changed value |
+| column order — imposed by `presented()` at the end anyway | a missing column |
+| dtype — `float64` or `double` or the text of the number | a null against a value |
+| `Categorical` storage — the labels are the answer | **a null against an empty string** |
+| float noise below tolerance — Spark sums in partition order | a float beyond it |
+
+The last row of the left column and the last of the right are the same
+distinction seen twice. Money is rounded to the cent by the cleaners
+themselves, so anything the tolerance forgives is representation; and
+null-versus-empty-string is the distinction this pipeline exists to preserve,
+so it is never forgiven.
+
+Rows are aligned on a key — `TXN_SEQ`, then `TXN_ID_CLEANED` — by an index
+join rather than by sorting both sides, because sorting silently mis-pairs
+every row after the first missing one where a join reports it as missing.
+
+The output is a report, not a boolean: *"`BALANCE_STATUS` differs on 41 rows,
+here are five with their keys"* is actionable where *"not equal"* is not.
+
+### How it grows
+
+`SPARK_STEP_REGISTRY` in `src/spark/pipeline.py` is the ledger of what has
+been ported. `ported()` returns the longest *prefix* of a profile's steps that
+is registered — a prefix and not a filter, because the stages are not
+independent: `amounts` signs by what `codes` resolved, `balance` moves by what
+`amounts` parsed.
+
+`tests/test_parity.py` runs that prefix through both engines and compares. It
+is never edited as the port proceeds: a stage becomes tested by being
+registered, and registering one that is not finished turns its parity test red
+immediately, which is the intended direction.
+
+With the registry empty it compares the two readers — which is not a vacuous
+assertion. It says that 11,417 rows and 22 columns of a genuinely dirty
+extract arrive identically through two entirely different readers, including
+which cells are null and which are the empty string.

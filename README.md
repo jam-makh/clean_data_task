@@ -207,7 +207,17 @@ Vocabularies live in `src/rules/json/` as data, never as code, so updating one n
 make test
 ```
 
-121 tests, table-driven from the awkward values in the real file rather than invented ones. They fall into four groups: the row-level parsing rules, the policies those rules exist to serve, staleness guards on the JSON rule files, and the output contract. [What a test should assert](ARCHITECTURE.md#what-a-test-should-assert) explains the distinction the suite is built on.
+378 tests, table-driven from the awkward values in the real file rather than invented ones. They fall into five groups: the row-level parsing rules, the policies those rules exist to serve, staleness guards on the JSON rule files, the output contract, and the pandas-vs-Spark parity harness. [What a test should assert](ARCHITECTURE.md#what-a-test-should-assert) explains the distinction the suite is built on.
+
+The parity tests start a JVM, which costs a few seconds once per session. Worth paying while the Spark port is what you are working on, and skippable otherwise:
+
+```bash
+make test-fast    # everything except the tests marked `spark`
+make parity       # only the pandas-vs-Spark comparison
+make verify       # does this machine run the Stage 2 stack at all
+```
+
+[The parity harness](ARCHITECTURE.md#the-parity-harness) explains what it compares, what it deliberately does not treat as a difference, and how it grows as stages are ported.
 
 ---
 

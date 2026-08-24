@@ -35,10 +35,13 @@ results: list[tuple[str, str, str]] = []
 # broken, so it depends on nothing the project itself has to load correctly.
 ENV_FILE = Path(".env")
 
-# Both of these move into config/pipeline.yaml when the code that reads them
-# exists -- the jar path with the Spark session builder, the topic with the
-# event contract. Duplicated here for now rather than stubbed there, because
-# a config key nothing reads is a claim the pipeline cannot keep.
+# Duplicated deliberately rather than imported. The jar path now also lives in
+# src/spark/session.py, which puts it on the driver classpath, and the topic
+# arrives in config/pipeline.yaml with the Phase 07 event contract -- but this
+# script has to be able to report "your environment is broken" while the
+# environment is broken, and a diagnostic that imports the project cannot do
+# that. The duplication is the price of that independence, and it is one line
+# each.
 JDBC_JAR = Path("jars/postgresql-42.7.4.jar")
 EXPECTED_TOPIC = "pipeline.run.completed.v1"
 

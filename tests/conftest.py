@@ -88,3 +88,64 @@ def tiny_frame():
             "BILLING_AMOUNT": [-104.39, 808.41, -50.0],
         }
     )
+
+
+# --- Stage 2: Spark ------------------------------------------------------
+# Session-scoped throughout. A Spark session costs several seconds of JVM
+# startup and only one can exist per process, so a fixture that built one per
+# test would both fail and be slow about it.
+
+
+@pytest.fixture(scope="session")
+def spark():
+    """
+    :returns: The project's Spark session, configured exactly as a real run
+        configures it -- which is the point of there being a factory.
+
+    Skips rather than fails when the JVM side is not there. A machine without
+    Java is a machine that cannot run these tests, and that is a setup
+    condition with its own diagnostic; failing the suite would report it as a
+    code defect nine times out of ten.
+    """
+    pytest.importorskip("pyspark")
+
+    from src.spark import session as session_module
+
+    try:
+        active = session_module.session("parity-tests")
+    except Exception as exc:  # noqa: BLE001 - the message is the whole point
+        pytest.skip(
+            f"could not start Spark ({type(exc).__name__}: {exc}). "
+            f"Run `python -m scripts.verify_env` -- it names the cause."
+        )
+    yield active
+    session_module.stop()
+
+
+@pytest.fixture(scope="session")
+def sample_path():
+    """
+    :returns: Path to the parity sample, cut from the forecast extract on
+        first use and cached after. See ``src.spark.sample`` for what "cut"
+        means here -- it is chosen, not taken.
+    """
+    from src.spark import sample as sample_module
+
+    try:
+        return sample_module.ensure(source=FORECAST)
+    except FileNotFoundError as exc:
+        pytest.skip(str(exc))
+
+
+@pytest.fixture(scope="session")
+def sample_frame(sample_path):
+    """
+    :returns: The sample read by the pandas reader the pipeline itself uses.
+        Read through ``read_source`` rather than ``pd.read_csv`` on purpose:
+        the parity claim is about the two pipelines, and a test that read the
+        pandas side its own way would be comparing Spark against something
+        the pipeline never sees.
+    """
+    from src.utils.io import read_source
+
+    return read_source(sample_path)[0]
