@@ -114,8 +114,66 @@ def test_a_missing_source_exits_two_not_one(capsys):
 
 
 def test_dry_run_writes_nothing(tmp_path, forecast):
-    """A run that reports without producing a file is how you check a profile."""
+    """
+    A run that reports without producing a file is how you check a profile.
+
+    ``--engine pandas`` is explicit rather than implied. The configured
+    default is spark, so leaving it off would start a JVM inside the suite
+    that is meant to run without one -- and would silently test the other
+    engine's dry run, which does not write a workbook whatever happens.
+    """
     source = tmp_path / "sample.csv"
     forecast.head(200).to_csv(source, index=False)
-    assert entry.main([str(source), "--dry-run"]) == 0
+    assert entry.main([str(source), "--dry-run", "--engine", "pandas"]) == 0
     assert not list(tmp_path.glob("*.xlsx"))
+
+
+# --- engine selection -------------------------------------------------------
+#
+# The dispatch itself, checked without a JVM. What these pin is which arm runs,
+# not what the arm does -- ``tests/test_runner.py`` covers the spark arm end to
+# end and pays six minutes for the privilege.
+
+
+def test_the_configured_engine_is_used_when_the_flag_is_absent(monkeypatch):
+    """
+    The default comes from config/pipeline.yaml, and it is spark. A regression
+    here would send every unflagged run to the wrong engine and produce the
+    wrong kind of output.
+    """
+    called = {}
+
+    def fake(source, args):
+        called["source"] = source
+        return 0
+
+    monkeypatch.setattr(entry, "_run_spark", fake)
+
+    assert entry.main(["data/raw/forecast_balance_data.csv"]) == 0
+    assert called
+
+
+def test_the_flag_overrides_the_configured_engine(monkeypatch, tmp_path, forecast):
+    """``--engine pandas`` must not reach the spark arm."""
+    source = tmp_path / "sample.csv"
+    forecast.head(50).to_csv(source, index=False)
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("--engine pandas reached the spark arm")
+
+    monkeypatch.setattr(entry, "_run_spark", refuse)
+
+    assert entry.main([str(source), "--dry-run", "--engine", "pandas"]) == 0
+
+
+def test_a_missing_source_is_caught_before_either_engine(monkeypatch):
+    """
+    Exit 2 without starting a JVM. Checking the file first is what keeps a
+    typo'd path cheap instead of costing Spark startup to discover.
+    """
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a missing source reached the spark arm")
+
+    monkeypatch.setattr(entry, "_run_spark", refuse)
+
+    assert entry.main(["data/raw/definitely_not_here.csv"]) == 2

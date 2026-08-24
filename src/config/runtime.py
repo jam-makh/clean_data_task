@@ -7,14 +7,16 @@ pipeline does to a row -- and the difference is load-bearing, because the
 config fingerprint covers policy and vocabulary but not this file. Reading
 the same workbook into a different output directory is the same run.
 
-Stage 2 grows a database section here when Postgres exists to point at, and a
-Kafka section when the broker does. Environment-variable layering and secret
-handling arrive with them: those are the settings that will actually need it,
-and building the machinery before there is anything to configure means
-shipping an untested default, which is worse than no default at all.
+Stage 2 added ``engine`` and ``database`` here, and will add ``kafka`` with
+the producer. What is deliberately NOT here is any credential: a host, a port
+and a password differ per machine and live in the environment, which is where
+docker compose reads them from too, so the containers and the clients cannot
+disagree about which values are in force. ``src/db/settings.py`` reads them.
+The split is the same one this file already draws -- what is written here is
+wiring anyone may read, and a password is not that.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -60,12 +62,40 @@ class Profile:
         return set(self.detect).issubset(set(columns))
 
 
+# The engines a run can be driven by. `spark` is the Stage 2 path -- read the
+# extract, clean it on Spark, upsert to Postgres. `pandas` is Stage 1 and
+# writes a workbook. They are not interchangeable outputs and the flag is not
+# a performance switch: choosing one chooses what the run produces.
+ENGINES = ("spark", "pandas")
+
+
+@dataclass(frozen=True)
+class Database:
+    """
+    How the Spark run treats Postgres. Not *where* it is -- see the module
+    docstring.
+
+    :param enabled: Whether the run writes at all. False makes it a dry run
+        that still reads, cleans and reports, which is what you want when the
+        question is "does the cleaning work" and not "does the write work".
+    :param batch_size: Rows per JDBC round trip. The driver defaults to 1000;
+        the round trip is the expensive part and Postgres takes far larger
+        batches happily. Not so large that a rejected batch's error message
+        covers an unhelpfully wide range of rows.
+    """
+
+    enabled: bool = True
+    batch_size: int = 10000
+
+
 @dataclass(frozen=True)
 class Runtime:
     """The runtime configuration, validated."""
 
     paths: Paths
     profiles: tuple[Profile, ...] = ()
+    engine: str = "spark"
+    database: Database = field(default_factory=Database)
 
     def profile(self, name: str) -> Profile:
         """
@@ -140,7 +170,60 @@ def parse(data: dict, path: Path = DEFAULT_PATH) -> Runtime:
             source=Path(paths["source"]), output=Path(paths["output"])
         ),
         profiles=_profiles(data.get("profiles"), path),
+        engine=_engine(data.get("engine"), path),
+        database=_database(data.get("database"), path),
     )
+
+
+def _engine(value, path: Path) -> str:
+    """
+    :param value: The ``engine`` key, or None when absent.
+    :returns: The engine name, defaulted.
+    :raises ConfigError: On a name that is not an engine, listing the ones
+        that are -- a typo here would otherwise pick the default silently and
+        run the wrong half of the project.
+    """
+    if value is None:
+        return "spark"
+    if value not in ENGINES:
+        raise ConfigError(
+            f"{path}: engine must be one of {', '.join(ENGINES)}, "
+            f"got {value!r}"
+        )
+    return value
+
+
+def _database(section, path: Path) -> Database:
+    """
+    :param section: The ``database`` mapping, or None when absent.
+    :returns: The database run settings, defaulted.
+    :raises ConfigError: On a malformed entry.
+    """
+    if section is None:
+        return Database()
+    if not isinstance(section, dict):
+        raise ConfigError(
+            f"{path}: 'database' must be a mapping, got "
+            f"{type(section).__name__}"
+        )
+
+    enabled = section.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError(
+            f"{path}: database.enabled must be true or false, got {enabled!r}"
+        )
+
+    batch = section.get("batch_size", 10000)
+    # Rejecting bool explicitly because `isinstance(True, int)` is True in
+    # Python, and `batch_size: yes` in YAML parses to a bool -- which would
+    # otherwise become a batch size of 1.
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
+        raise ConfigError(
+            f"{path}: database.batch_size must be a positive integer, "
+            f"got {batch!r}"
+        )
+
+    return Database(enabled=enabled, batch_size=batch)
 
 
 def _profiles(section, path: Path) -> tuple[Profile, ...]:

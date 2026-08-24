@@ -24,19 +24,29 @@ reason about, and a failed run is safe to simply run again.
 from src.db import contract, migrate
 from src.db.settings import Database
 
-# Rows per JDBC round trip. The driver's default is 1000; Postgres handles far
-# larger batches happily and the round trip is the expensive part. Not so large
-# that a failing batch's error message covers an unhelpfully wide range of rows.
-BATCH_SIZE = "10000"
+def _batch_size(given: int | None) -> str:
+    """
+    :param given: An explicit override, or None to read the configured value.
+    :returns: Rows per JDBC round trip, as the string the option takes.
+    """
+    if given is not None:
+        return str(given)
+    from src.config import runtime
+
+    return str(runtime.load().database.batch_size)
 
 
-def stage(frame, database: Database, sync_job_id: str) -> None:
+def stage(
+    frame, database: Database, sync_job_id: str, batch_size: int | None = None
+) -> None:
     """
     Loads the projected frame into the staging table, replacing its contents.
 
     :param frame: The cleaned frame, as ``src.spark.pipeline.run`` returned it.
     :param database: Where to write.
     :param sync_job_id: The load these rows belong to.
+    :param batch_size: Rows per round trip; ``database.batch_size`` from
+        config when absent.
     """
     projected = contract.project(frame, sync_job_id)
 
@@ -47,14 +57,18 @@ def stage(frame, database: Database, sync_job_id: str) -> None:
     # silently undo every CHECK in sql/schema.sql on the first run.
     migrate.truncate_staging(database)
 
-    projected.write.mode("append").option("batchsize", BATCH_SIZE).jdbc(
+    projected.write.mode("append").option(
+        "batchsize", _batch_size(batch_size)
+    ).jdbc(
         url=database.jdbc_url,
         table=migrate.STAGING,
         properties=database.jdbc_properties,
     )
 
 
-def write(frame, database: Database, sync_job_id: str) -> int:
+def write(
+    frame, database: Database, sync_job_id: str, batch_size: int | None = None
+) -> int:
     """
     The whole sink: ensure the tables exist, stage the batch, merge it.
 
@@ -67,8 +81,9 @@ def write(frame, database: Database, sync_job_id: str) -> int:
     :param frame: The cleaned frame.
     :param database: Where to write.
     :param sync_job_id: The load these rows belong to.
+    :param batch_size: Rows per round trip; configured value when absent.
     :returns: Rows inserted or updated in the live table.
     """
     migrate.migrate(database)
-    stage(frame, database, sync_job_id)
+    stage(frame, database, sync_job_id, batch_size)
     return migrate.merge(database)

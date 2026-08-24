@@ -1,4 +1,18 @@
-"""Public entry point: one function that cleans a transactions dataset."""
+"""
+Public entry point: one function that cleans a transactions dataset, and the
+command line for both engines.
+
+Two engines, two different outputs, one ``main``. ``--engine pandas`` is the
+Stage 1 path: clean in memory, write the multi-sheet workbook. ``--engine
+spark`` is Stage 2: read the extract, clean it on Spark, upsert to Postgres,
+and report what the load did. Which one runs without the flag is
+``engine:`` in config/pipeline.yaml.
+
+They are not interchangeable implementations of one thing, and the flag is not
+a performance switch -- choosing an engine chooses what the run produces. The
+parity harness is what makes the *cleaning* the same across both; the writing
+was never meant to be.
+"""
 
 import argparse
 import sys
@@ -188,9 +202,58 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Run and report, but write no output file.",
+        help=(
+            "Run and report, but write nothing -- no workbook on pandas, no "
+            "database rows on spark."
+        ),
+    )
+    parser.add_argument(
+        "--engine",
+        choices=runtime.ENGINES,
+        help=(
+            "Which engine runs the cleaning, and therefore what the run "
+            "produces: spark upserts to Postgres, pandas writes a workbook. "
+            f"Defaults to engine in config/pipeline.yaml ({config.engine})."
+        ),
     )
     return parser
+
+
+def _run_spark(source: Path, args) -> int:
+    """
+    The Stage 2 arm: read, clean, count, upsert, report.
+
+    Imported inside the function rather than at module scope so that
+    ``main.py --engine pandas`` on a machine with no JVM still works, and so
+    that ``--help`` does not pay for pyspark.
+
+    :param source: The extract to read.
+    :param args: Parsed arguments.
+    :returns: Process exit code, on the same scheme as ``main``.
+    """
+    from src.runner import run
+
+    try:
+        result = run(source, profile=args.profile, write=not args.dry_run)
+    except (ConfigError, KeyError, ValueError) as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    written = (
+        "(dry run, nothing written)" if result.rows_written is None
+        else f"{result.rows_written} rows upserted"
+    )
+    print(f"Source: {result.source}")
+    print(f"Profile: {result.profile}")
+    print(f"Sync job: {result.sync_job_id}")
+    print(f"Read {result.rows_read} rows -> {written}")
+    print(f"Elapsed: {result.seconds:.1f}s")
+    print(f"Config fingerprint: {result.fingerprint}\n")
+    print(result.report)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -201,13 +264,17 @@ def main(argv: list[str] | None = None) -> int:
         missing file is reasonable and retrying a malformed profile is not.
     """
     args = build_parser().parse_args(argv)
-    paths = runtime.load().paths
+    config = runtime.load()
+    paths = config.paths
     source = Path(args.source) if args.source else paths.source
     output = None if args.dry_run else Path(args.output or paths.output)
 
     if not source.exists():
         print(f"Source not found: {source}", file=sys.stderr)
         return 2
+
+    if (args.engine or config.engine) == "spark":
+        return _run_spark(source, args)
 
     try:
         cleaned, report = clean_transactions(

@@ -122,9 +122,16 @@ def test_a_missing_file_names_the_path():
 
 
 def test_runtime_config_loads():
+    """
+    The suffixes are asserted as a set rather than a literal: the configured
+    source moved from the v4 workbook to the forecast CSV when Spark became
+    the default engine, and a test pinned to one extension would have failed
+    on a change of file rather than a change of meaning. What has to hold is
+    that the reader understands it -- see src/utils/io.py.
+    """
     paths = runtime_module.load().paths
-    assert paths.source.suffix == ".xlsx"
-    assert paths.output.suffix == ".xlsx"
+    assert paths.source.suffix in {".xlsx", ".csv", ".tsv", ".txt"}
+    assert paths.output.suffix in {".xlsx", ".csv"}
 
 
 def test_runtime_rejects_a_missing_path_key():
@@ -182,3 +189,83 @@ def test_every_fingerprinted_file_exists():
     """
     for path in FINGERPRINTED:
         assert path.exists(), f"fingerprinted file is missing: {path}"
+
+
+# --- Stage 2: engine selection and database wiring -------------------------
+#
+# Both are read on every Spark run, and both fail in ways that look like data
+# problems rather than configuration ones: a mistyped engine would silently
+# run the other half of the project, and a batch_size of 1 would turn one
+# round trip into 265,195 of them and look only like slowness.
+
+
+def test_the_engine_defaults_to_spark_when_absent():
+    parsed = runtime_module.parse({"paths": {"source": "a.csv", "output": "b.xlsx"}})
+
+    assert parsed.engine == "spark"
+    assert parsed.database.enabled is True
+
+
+@pytest.mark.parametrize("engine", runtime_module.ENGINES)
+def test_each_configured_engine_is_accepted(engine):
+    parsed = runtime_module.parse(
+        {"paths": {"source": "a.csv", "output": "b.xlsx"}, "engine": engine}
+    )
+
+    assert parsed.engine == engine
+
+
+def test_an_unknown_engine_names_the_ones_that_exist():
+    """
+    Silently defaulting would run the wrong engine and produce the wrong kind
+    of output, with nothing in the run to say so.
+    """
+    with pytest.raises(ConfigError) as raised:
+        runtime_module.parse(
+            {"paths": {"source": "a.csv", "output": "b.xlsx"}, "engine": "sparl"}
+        )
+
+    assert "spark" in str(raised.value)
+    assert "pandas" in str(raised.value)
+
+
+@pytest.mark.parametrize("bad", [0, -1, "10000", 1.5])
+def test_a_bad_batch_size_is_rejected(bad):
+    with pytest.raises(ConfigError, match="batch_size"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "database": {"batch_size": bad},
+        })
+
+
+def test_a_yaml_boolean_batch_size_is_rejected():
+    """
+    `batch_size: yes` parses to True in YAML, and `isinstance(True, int)` is
+    True in Python -- so without an explicit check it would become a batch
+    size of 1 and merely look slow.
+    """
+    with pytest.raises(ConfigError, match="batch_size"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "database": {"batch_size": True},
+        })
+
+
+def test_a_non_boolean_enabled_is_rejected():
+    with pytest.raises(ConfigError, match="database.enabled"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "database": {"enabled": "yes please"},
+        })
+
+
+def test_the_shipped_config_selects_spark_and_writes():
+    """
+    What `make run` actually does, asserted rather than assumed -- this is the
+    one place the Stage 2 default is stated.
+    """
+    config = runtime_module.load()
+
+    assert config.engine == "spark"
+    assert config.database.enabled is True
+    assert config.database.batch_size >= 1000

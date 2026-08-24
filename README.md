@@ -26,6 +26,22 @@ Run the pipeline against the bundled source file.
 make run
 ```
 
+That runs the **Spark** path: it reads `data/raw/forecast_balance_data.csv`, cleans it through the eleven ported stages, and upserts the result into Postgres. It needs the containers up — `make verify` checks Java, Spark, Postgres and Kafka and names the fix for anything that is down.
+
+To clean without any of that, use the pandas path, which needs no JVM and no containers and writes the multi-sheet workbook instead:
+
+```bash
+make run-pandas
+```
+
+Or read, clean and report while writing nothing at all:
+
+```bash
+make run-dry
+```
+
+Which engine runs without a flag is `engine:` in `config/pipeline.yaml`. The two are not interchangeable implementations of one thing — choosing an engine chooses what the run produces. What the parity harness guarantees is that the *cleaning* agrees across both.
+
 Run the test suite.
 
 ```bash
@@ -46,8 +62,11 @@ Both `make` targets are one-line wrappers, so the direct equivalents work identi
 
 ```powershell
 python main.py
+python main.py --engine pandas
 python -m pytest -q
 ```
+
+Every run is identified by a `sync_job_id` derived from the source file's contents, not generated per run. Re-running the same file mints the same id and upserts the same rows to the same values, so a second run changes nothing a reader can observe — which is what makes the pipeline safe to re-run after a failure, and what will let a re-delivering Kafka consumer be a no-op.
 
 `src/` holds the steps, the orchestrator and the report; `main.py` at the repo root is the entry point that composes them.
 

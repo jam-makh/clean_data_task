@@ -8,17 +8,27 @@
 # deliberately excludes this file -- pointing the pipeline at a different
 # directory must not read as "the rules changed".
 #
-# Stage 2 adds a `database:` section here when Postgres exists to point at,
-# and a `kafka:` section when the broker does. Neither is stubbed in advance:
-# config for a service that does not exist yet cannot be validated, and an
-# untested default is worse than an absent one.
+# `database:` is below now that Postgres exists to point at. `kafka:` arrives
+# with the producer, on the same rule: config for a service nothing talks to
+# yet cannot be validated, and an untested default is worse than an absent one.
+#
+# No credentials here, and none coming. A host, a port and a password differ
+# per machine and belong in the environment -- which is also where docker
+# compose reads them, so the containers and the clients cannot disagree about
+# which values are in force. `src/db/settings.py` reads them.
 
 paths:
   # The default source, used when the command line names no file. It is a
   # default and not a constant: `python main.py <path>` overrides it, which is
   # what makes the pipeline runnable against a file nobody has seen yet
   # without editing anything.
-  source: data/raw/synthetic_dirty_transactions_v4.xlsx
+  #
+  # The forecast extract, which is the Stage 2 source: it is the file the
+  # Spark half was ported against and the only profile ported end to end. The
+  # v4 workbook still runs -- `python main.py data/raw/synthetic_dirty_...`
+  # detects its profile and cleans it on pandas -- it is simply no longer what
+  # a bare `make run` means.
+  source: data/raw/forecast_balance_data.csv
   output: data/output/cleaned_transactions.xlsx
 
 # Which steps run, for which kind of file.
@@ -82,3 +92,31 @@ profiles:
       - geo
       - mcc
       - consistency
+
+
+# Which engine a run without --engine uses.
+#
+# Not a performance switch. The two engines produce different things: `spark`
+# reads the extract, cleans it and upserts to Postgres; `pandas` cleans in
+# memory and writes the multi-sheet workbook. Choosing one chooses what the
+# run produces, which is why it is stated here rather than inferred from the
+# source's size or extension.
+#
+# `spark` because that is the Stage 2 deliverable. `--engine pandas` is the
+# Stage 1 path and still works on either source.
+engine: spark
+
+
+# How the Spark run treats Postgres. Where Postgres IS lives in .env; see the
+# note at the top of this file.
+database:
+  # False makes a run read, clean and report without writing -- the state you
+  # want when the question is whether the cleaning is right, not whether the
+  # write is. `--no-database` on the command line forces it off for one run.
+  enabled: true
+
+  # Rows per JDBC round trip. The driver's default is 1000 and the round trip
+  # is the expensive part, so this is raised; not raised further because a
+  # batch Postgres rejects reports an error covering the whole batch, and a
+  # wider batch makes that message point at a wider range of rows.
+  batch_size: 10000

@@ -11,16 +11,28 @@ PYTHON ?= python
 # Deletions go through Python rather than `find`/`rm -rf` for the same reason:
 # those are sh-only, and Python is guaranteed present in a Python project.
 
-.PHONY: help run test test-fast parity sample verify db-migrate db-reset clean clean-pyc clean-build
+.PHONY: help run run-pandas run-dry test test-fast parity sample verify db-migrate db-reset clean clean-pyc clean-build
 
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
 help:
 	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
 
-# Run the pipeline
+# Run the pipeline on the configured engine, which is spark: read the extract,
+# clean it, upsert to Postgres. Needs the stack up -- `make verify` first.
 run:
 	$(PYTHON) main.py
+
+# The same source through the Stage 1 pandas path, producing the multi-sheet
+# workbook instead of database rows. Needs no JVM and no containers, which is
+# what makes it the way to check a cleaning change quickly.
+run-pandas:
+	$(PYTHON) main.py --engine pandas
+
+# Read, clean and report without writing anything. The state you want when the
+# question is whether the cleaning is right rather than whether the write is.
+run-dry:
+	$(PYTHON) main.py --dry-run
 
 # Run the test suite
 test:
