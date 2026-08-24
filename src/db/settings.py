@@ -109,6 +109,33 @@ class Database:
         return f"{self.user}@{self.host}:{self.port}/{self.database}"
 
 
+def connect(database: Database):
+    """
+    Opens a psycopg2 connection to the database these settings describe.
+
+    Here rather than in each module that needs one, because psycopg2 is an
+    optional-looking dependency whose absence produces an ImportError naming a
+    module and not what wanted it -- and three modules repeating that
+    translation would be three places to fix it.
+
+    :param database: Where to connect.
+    :returns: An open connection. The caller closes it, or uses it as a
+        context manager -- which in psycopg2 commits the transaction and does
+        NOT close the connection, a distinction worth knowing before copying
+        this call.
+    :raises RuntimeError: If psycopg2 is not installed, saying what needed it.
+    """
+    try:
+        import psycopg2
+    except ImportError as exc:  # pragma: no cover - environment failure
+        raise RuntimeError(
+            "psycopg2 is required to talk to Postgres. "
+            "pip install -r requirements.txt"
+        ) from exc
+
+    return psycopg2.connect(database.dsn)
+
+
 def load(env: dict[str, str] | None = None) -> Database:
     """
     :param env: Overrides for testing. Production passes nothing and the real

@@ -16,10 +16,18 @@ nothing, which is the honest behaviour for ``IF NOT EXISTS`` and the reason
 
 from pathlib import Path
 
-from src.db import contract
-from src.db.settings import Database
+from src.db import contract, raw
+from src.db.settings import Database, connect
 
 SCHEMA = Path("sql/schema.sql")
+
+# The landing table the streaming path reads from. A second file rather than
+# more statements in the first, because the two answer different questions and
+# a reader arriving at either should not have to scroll past the other:
+# schema.sql is what the pipeline produces, raw_schema.sql is what it is given.
+# Both are applied together, because a database with one and not the other runs
+# exactly half of this system.
+RAW_SCHEMA = Path("sql/raw_schema.sql")
 
 # Where Spark bulk-loads before the merge. Named after its destination so the
 # pairing is obvious in a table listing.
@@ -52,33 +60,37 @@ def _connect(database: Database):
     :raises RuntimeError: If psycopg2 is not installed, saying so plainly --
         the driver error names a module and not what needed it.
     """
-    try:
-        import psycopg2
-    except ImportError as exc:  # pragma: no cover - environment failure
-        raise RuntimeError(
-            "psycopg2 is required to run migrations and the upsert. "
-            "pip install -r requirements.txt"
-        ) from exc
-
-    return psycopg2.connect(database.dsn)
+    return connect(database)
 
 
-def migrate(database: Database, schema: Path = SCHEMA) -> None:
+def migrate(
+    database: Database,
+    schema: Path = SCHEMA,
+    raw_schema: Path = RAW_SCHEMA,
+) -> None:
     """
-    Creates the table, its indexes and the staging table if they are absent.
+    Creates both tables, their indexes and the staging table if they are
+    absent.
+
+    One transaction for the lot. The three are not independent -- the staging
+    table is declared ``LIKE cleaned_transactions``, and a half-applied schema
+    is a database that fails later and further away than here.
 
     :param database: Where to apply it.
-    :param schema: The DDL file.
-    :raises FileNotFoundError: If the schema file is missing, which is a
-        broken checkout rather than a database problem.
+    :param schema: The cleaned-table DDL.
+    :param raw_schema: The landing-table DDL.
+    :raises FileNotFoundError: If either file is missing, which is a broken
+        checkout rather than a database problem.
     """
-    if not schema.exists():
-        raise FileNotFoundError(f"schema not found: {schema.resolve()}")
+    for path in (schema, raw_schema):
+        if not path.exists():
+            raise FileNotFoundError(f"schema not found: {path.resolve()}")
 
     with _connect(database) as connection:
         with connection.cursor() as cursor:
             cursor.execute(schema.read_text(encoding="utf-8"))
             cursor.execute(STAGING_DDL)
+            cursor.execute(raw_schema.read_text(encoding="utf-8"))
 
 
 def truncate_staging(database: Database) -> None:
@@ -116,12 +128,19 @@ def merge(database: Database) -> int:
 
 def recreate(database: Database) -> None:
     """
-    Drops both tables and rebuilds them from the schema file.
+    Drops all three tables and rebuilds them from the schema files.
 
     The development escape hatch, and the answer to what ``migrate`` will not
     do: a column added to sql/schema.sql reaches an existing database only this
     way. Destructive by definition, so it is never called by the writer -- it
     is here to be called deliberately, by ``make db-reset``.
+
+    ``raw_transactions`` goes too, and that is worth stating rather than
+    discovering: rows inserted by hand to watch them flow through the consumer
+    are dropped along with everything else. They are regenerable --
+    ``make seed-raw`` cuts fresh ones from the extract -- but the ids change,
+    so anything holding on to an old id is holding a number that now means
+    nothing.
 
     :param database: Where to do it.
     """
@@ -129,4 +148,5 @@ def recreate(database: Database) -> None:
         with connection.cursor() as cursor:
             cursor.execute(f"DROP TABLE IF EXISTS {STAGING}")
             cursor.execute(f"DROP TABLE IF EXISTS {contract.TABLE}")
+            cursor.execute(f"DROP TABLE IF EXISTS {raw.TABLE}")
     migrate(database)

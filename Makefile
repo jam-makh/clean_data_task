@@ -11,12 +11,12 @@ PYTHON ?= python
 # Deletions go through Python rather than `find`/`rm -rf` for the same reason:
 # those are sh-only, and Python is guaranteed present in a Python project.
 
-.PHONY: help run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset clean clean-pyc clean-build
+.PHONY: help run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset seed-raw clean clean-pyc clean-build
 
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
 help:
-	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
+	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
 
 # Run the pipeline on the configured engine, which is spark: read the extract,
 # clean it, upsert to Postgres. Needs the stack up -- `make verify` first.
@@ -75,10 +75,19 @@ kafka-topic:
 db-migrate:
 	$(PYTHON) -c "from src.db import migrate, settings; migrate.migrate(settings.load()); print('schema applied')"
 
-# Drop both tables and rebuild them. This is how a column added to
+# Insert rows from the extract into raw_transactions and print their ids --
+# the manual "a transaction arrived" step of the streaming path, made
+# repeatable. `make seed-raw N=3` for three rows; DIRTY=1 picks rows a stage
+# will visibly change, which is what you want when the point is to watch the
+# cleaning happen rather than to watch it find nothing.
+seed-raw:
+	$(PYTHON) -m scripts.seed_raw --count $(or $(N),1) $(if $(DIRTY),--dirty,)
+
+# Drop all three tables and rebuild them. This is how a column added to
 # sql/schema.sql reaches a database that already exists, because IF NOT EXISTS
 # will not alter a table it finds. Destructive, and separate from db-migrate
-# for that reason.
+# for that reason -- note that it takes raw_transactions with it, so rows
+# seeded or typed in by hand are gone and their ids mean nothing afterwards.
 db-reset:
 	$(PYTHON) -c "from src.db import migrate, settings; migrate.recreate(settings.load()); print('schema rebuilt')"
 
