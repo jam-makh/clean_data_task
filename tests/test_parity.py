@@ -114,6 +114,13 @@ def test_an_unported_step_names_the_pandas_registry():
     """
     "Unknown step" and "known step, not ported yet" look identical and are
     not: one is a typo and one is a Monday.
+
+    ``dates`` rather than any other name, because it is the one step that is
+    unported by decision rather than by not having got to it yet -- it is the
+    v4 workbook's date handling, and the forecast profile uses ``timestamps``
+    instead. Every other name here would make this test a countdown that goes
+    red the day the stage lands, which is what happened to the one it
+    replaced.
     """
     with pytest.raises(KeyError, match="not ported yet"):
-        spark_pipeline.steps_for(["balance"])
+        spark_pipeline.steps_for(["dates"])
