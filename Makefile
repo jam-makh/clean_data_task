@@ -11,7 +11,7 @@ PYTHON ?= python
 # Deletions go through Python rather than `find`/`rm -rf` for the same reason:
 # those are sh-only, and Python is guaranteed present in a Python project.
 
-.PHONY: help run run-pandas run-dry test test-fast parity sample verify db-migrate db-reset clean clean-pyc clean-build
+.PHONY: help run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset clean clean-pyc clean-build
 
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
@@ -59,6 +59,14 @@ sample:
 # Does this machine run the Stage 2 stack? Every failure names its own fix.
 verify:
 	$(PYTHON) -m scripts.verify_env
+
+# Create the completion-event topic if the broker does not have it. Auto-create
+# is off on purpose -- a producer aimed at a typo'd topic should fail rather
+# than quietly invent one -- so the topic has to be made deliberately. The
+# runner does this before every emit too; this target is for setting a fresh
+# broker up without running the pipeline.
+kafka-topic:
+	$(PYTHON) -c "from src.kafka import producer, settings; b = settings.load(); print('created' if producer.ensure_topic(b) else 'already there', b.topic)"
 
 # Create cleaned_transactions, its indexes and the staging table. Idempotent --
 # every statement is IF NOT EXISTS -- so running it against a database that is

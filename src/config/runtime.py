@@ -7,8 +7,8 @@ pipeline does to a row -- and the difference is load-bearing, because the
 config fingerprint covers policy and vocabulary but not this file. Reading
 the same workbook into a different output directory is the same run.
 
-Stage 2 added ``engine`` and ``database`` here, and will add ``kafka`` with
-the producer. What is deliberately NOT here is any credential: a host, a port
+Stage 2 added ``engine``, ``database`` and ``kafka`` here. What is
+deliberately NOT here is any credential: a host, a port
 and a password differ per machine and live in the environment, which is where
 docker compose reads them from too, so the containers and the clients cannot
 disagree about which values are in force. ``src/db/settings.py`` reads them.
@@ -89,6 +89,36 @@ class Database:
 
 
 @dataclass(frozen=True)
+class Kafka:
+    """
+    What the run announces, and where. Not the broker's address -- see the
+    module docstring; that is ``KAFKA_BOOTSTRAP_SERVERS`` in the environment,
+    because a real cluster is several hosts and they differ per deployment.
+
+    :param enabled: Whether a run emits at all. False is the right setting
+        while the broker is down and the cleaning is what you are working on.
+    :param topic: Where completion events go. The ``.v1`` is the wire
+        contract: a breaking change to the payload means a new topic, not a
+        new field, because a consumer reading v1 must never be handed v2.
+    :param partitions: Used only when creating the topic. One is enough for an
+        event stream keyed by job id and read by a single consumer; more would
+        buy parallelism nothing here needs and cost ordering across jobs.
+    :param replication_factor: One, because a single-broker cluster cannot
+        satisfy more -- the same reason docker-compose.yml overrides the
+        internal topics' default of three.
+    :param delivery_timeout: Seconds to wait for the broker to acknowledge.
+        Generous, because the alternative to waiting is reporting a run as
+        announced when it was not.
+    """
+
+    enabled: bool = True
+    topic: str = "pipeline.run.completed.v1"
+    partitions: int = 1
+    replication_factor: int = 1
+    delivery_timeout: int = 30
+
+
+@dataclass(frozen=True)
 class Runtime:
     """The runtime configuration, validated."""
 
@@ -96,6 +126,7 @@ class Runtime:
     profiles: tuple[Profile, ...] = ()
     engine: str = "spark"
     database: Database = field(default_factory=Database)
+    kafka: Kafka = field(default_factory=Kafka)
 
     def profile(self, name: str) -> Profile:
         """
@@ -172,6 +203,7 @@ def parse(data: dict, path: Path = DEFAULT_PATH) -> Runtime:
         profiles=_profiles(data.get("profiles"), path),
         engine=_engine(data.get("engine"), path),
         database=_database(data.get("database"), path),
+        kafka=_kafka(data.get("kafka"), path),
     )
 
 
@@ -191,6 +223,67 @@ def _engine(value, path: Path) -> str:
             f"got {value!r}"
         )
     return value
+
+
+def _positive_int(section: dict, key: str, default: int, where: str, path: Path) -> int:
+    """
+    :returns: A positive integer setting, defaulted.
+    :raises ConfigError: On anything else. Bool is rejected explicitly because
+        ``isinstance(True, int)`` is True in Python and ``key: yes`` in YAML
+        parses to a bool -- which would silently become 1.
+    """
+    value = section.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigError(
+            f"{path}: {where}.{key} must be a positive integer, got {value!r}"
+        )
+    return value
+
+
+def _flag(section: dict, key: str, default: bool, where: str, path: Path) -> bool:
+    """
+    :returns: A boolean setting, defaulted.
+    :raises ConfigError: On a non-boolean -- ``enabled: "false"`` is a string
+        and truthy, which would turn the setting on while looking like off.
+    """
+    value = section.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(
+            f"{path}: {where}.{key} must be true or false, got {value!r}"
+        )
+    return value
+
+
+def _kafka(section, path: Path) -> Kafka:
+    """
+    :param section: The ``kafka`` mapping, or None when absent.
+    :returns: The event settings, defaulted.
+    :raises ConfigError: On a malformed entry.
+    """
+    if section is None:
+        return Kafka()
+    if not isinstance(section, dict):
+        raise ConfigError(
+            f"{path}: 'kafka' must be a mapping, got {type(section).__name__}"
+        )
+
+    topic = section.get("topic", Kafka.topic)
+    if not isinstance(topic, str) or not topic.strip():
+        raise ConfigError(
+            f"{path}: kafka.topic must be a non-empty string, got {topic!r}"
+        )
+
+    return Kafka(
+        enabled=_flag(section, "enabled", True, "kafka", path),
+        topic=topic,
+        partitions=_positive_int(section, "partitions", 1, "kafka", path),
+        replication_factor=_positive_int(
+            section, "replication_factor", 1, "kafka", path
+        ),
+        delivery_timeout=_positive_int(
+            section, "delivery_timeout", 30, "kafka", path
+        ),
+    )
 
 
 def _database(section, path: Path) -> Database:

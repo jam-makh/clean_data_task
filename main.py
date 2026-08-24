@@ -208,6 +208,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-emit",
+        action="store_true",
+        help=(
+            "Write to the database but announce nothing on Kafka. For when "
+            "the broker is down and the cleaning is what you are checking. "
+            "Spark engine only; the default is kafka.enabled in "
+            f"config/pipeline.yaml ({config.kafka.enabled})."
+        ),
+    )
+    parser.add_argument(
         "--engine",
         choices=runtime.ENGINES,
         help=(
@@ -231,10 +241,29 @@ def _run_spark(source: Path, args) -> int:
     :param args: Parsed arguments.
     :returns: Process exit code, on the same scheme as ``main``.
     """
+    from src.kafka.producer import PublishError
     from src.runner import run
 
+    # --dry-run suppresses both outputs, not just the database one: a run
+    # that writes nothing but still announces "265,195 rows cleaned" would put
+    # a lie on the topic, and a consumer has no way to tell it from the truth.
+    emit = None if not args.dry_run else False
+    if args.no_emit:
+        emit = False
+
     try:
-        result = run(source, profile=args.profile, write=not args.dry_run)
+        result = run(
+            source,
+            profile=args.profile,
+            write=not args.dry_run,
+            emit=emit,
+        )
+    except PublishError as exc:
+        # Distinguished from a failed run, because it is not one. The rows are
+        # committed; only the announcement failed, and re-running is safe.
+        print(f"Rows written, but the event was not published: {exc}",
+              file=sys.stderr)
+        return 3
     except (ConfigError, KeyError, ValueError) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
@@ -249,7 +278,11 @@ def _run_spark(source: Path, args) -> int:
     print(f"Source: {result.source}")
     print(f"Profile: {result.profile}")
     print(f"Sync job: {result.sync_job_id}")
-    print(f"Read {result.rows_read} rows -> {written}")
+    announced = (
+        f"announced on {result.event['event']}" if result.event
+        else "not announced"
+    )
+    print(f"Read {result.rows_read} rows -> {written}, {announced}")
     print(f"Elapsed: {result.seconds:.1f}s")
     print(f"Config fingerprint: {result.fingerprint}\n")
     print(result.report)
@@ -260,8 +293,10 @@ def main(argv: list[str] | None = None) -> int:
     """
     :param argv: Arguments to parse; ``sys.argv[1:]`` when absent.
     :returns: Process exit code -- 0 clean, 1 bad configuration or source,
-        2 source missing. Distinguished because a scheduler retrying a
-        missing file is reasonable and retrying a malformed profile is not.
+        2 source missing, 3 written but not announced. Distinguished because
+        a scheduler retrying a missing file is reasonable, retrying a
+        malformed profile is not, and 3 means the data is safe and only the
+        event needs re-sending.
     """
     args = build_parser().parse_args(argv)
     config = runtime.load()

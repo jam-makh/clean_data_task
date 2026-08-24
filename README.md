@@ -66,6 +66,10 @@ python main.py --engine pandas
 python -m pytest -q
 ```
 
+When the Spark run finishes it publishes a completion event to Kafka on `pipeline.run.completed.v1`, keyed by the run's `sync_job_id`. The event carries the source, the profile, the config fingerprint, the row counts and every per-stage total — enough that a consumer can act on it without reading the database, and enough that it can find the rows if it wants to. `--no-emit` writes to Postgres and announces nothing; `make kafka-topic` creates the topic, which does not auto-create on purpose.
+
+Kafka carries the *event*, not the transactions. The rows go to Postgres.
+
 Every run is identified by a `sync_job_id` derived from the source file's contents, not generated per run. Re-running the same file mints the same id and upserts the same rows to the same values, so a second run changes nothing a reader can observe — which is what makes the pipeline safe to re-run after a failure, and what will let a re-delivering Kafka consumer be a no-op.
 
 `src/` holds the steps, the orchestrator and the report; `main.py` at the repo root is the entry point that composes them.

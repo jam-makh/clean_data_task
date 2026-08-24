@@ -14,6 +14,10 @@ The two runs below are deliberate and are most of the runtime. One proves the
 chain works; the second proves running it again changes nothing, which is the
 property the whole staging-and-merge design exists for and cannot be checked
 with a single run.
+
+Marked ``kafka`` as well as ``db`` since the runner emits: the chain does not
+end at Postgres, and a test that skipped the announcement would not be testing
+the chain.
 """
 
 import pytest
@@ -23,7 +27,7 @@ from src.config.errors import ConfigError
 from src.db import contract
 from src.db import settings as db_settings
 
-pytestmark = [pytest.mark.db, pytest.mark.spark]
+pytestmark = [pytest.mark.db, pytest.mark.spark, pytest.mark.kafka]
 
 
 @pytest.fixture(scope="module")
@@ -113,6 +117,27 @@ def test_the_profile_was_detected_not_assumed(first_run):
     assert first_run.profile == "forecast_balance"
 
 
+def test_the_run_announced_itself(first_run):
+    """
+    The chain ends on Kafka, not in Postgres. A run that wrote 11,417 rows and
+    told nobody is half-finished, and this is the assertion that would notice.
+    """
+    assert first_run.event is not None
+    assert first_run.event["sync_job_id"] == first_run.sync_job_id
+    assert first_run.event["rows"]["written"] == first_run.rows_written
+
+
+def test_the_event_carries_the_same_fingerprint_as_the_run(first_run):
+    """
+    "Same input, same rules, same answer" has to be checkable by whoever reads
+    the event, not only by whoever ran it.
+    """
+    assert first_run.event["config_fingerprint"] == first_run.fingerprint
+    assert first_run.event["metrics"]["output_rows"] == (
+        first_run.metrics["output_rows"]
+    )
+
+
 def test_the_fingerprint_travels_with_the_run(first_run):
     """
     "Same input, same rules, same answer" has to be checkable from the run's
@@ -196,9 +221,12 @@ def test_a_dry_run_reads_and_reports_without_writing(
     source = tmp_path / "subset.csv"
     source.write_text("".join(lines[:2001]), encoding="utf-8")
 
-    result = run(source, connection=database, spark=spark, write=False)
+    result = run(
+        source, connection=database, spark=spark, write=False, emit=False
+    )
 
     assert result.rows_written is None
+    assert result.event is None
     assert result.rows_read > 0
     assert result.report.entries
     assert rows_for(database, result.sync_job_id) == 0
@@ -218,6 +246,7 @@ def test_an_unported_profile_says_so_and_names_the_way_out():
             runtime.load().paths.source,
             profile="transactions_v4",
             write=False,
+            emit=False,
         )
 
     assert "pandas" in str(raised.value)

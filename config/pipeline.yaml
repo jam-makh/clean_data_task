@@ -8,9 +8,10 @@
 # deliberately excludes this file -- pointing the pipeline at a different
 # directory must not read as "the rules changed".
 #
-# `database:` is below now that Postgres exists to point at. `kafka:` arrives
-# with the producer, on the same rule: config for a service nothing talks to
-# yet cannot be validated, and an untested default is worse than an absent one.
+# `database:` and `kafka:` are below now that both services exist to point at.
+# Neither was stubbed in advance, on the rule this file has followed since:
+# config for a service nothing talks to yet cannot be validated, and an
+# untested default is worse than an absent one.
 #
 # No credentials here, and none coming. A host, a port and a password differ
 # per machine and belong in the environment -- which is also where docker
@@ -120,3 +121,42 @@ database:
   # batch Postgres rejects reports an error covering the whole batch, and a
   # wider batch makes that message point at a wider range of rows.
   batch_size: 10000
+
+
+# What a finished run announces, and where.
+#
+# Kafka carries the *event*, not the transactions. The rows go to Postgres;
+# what travels here is a statement that a job ran, over which source, under
+# which config fingerprint, and with these totals. A consumer wanting the rows
+# joins on `sync_job_id`, which is why that id is derived from the source
+# rather than generated -- the same load produces the same id in both places.
+#
+# The broker's address is NOT here. It is KAFKA_BOOTSTRAP_SERVERS in .env, for
+# the reason given at the top of this file, and because a real cluster is a
+# comma-separated list of hosts that differs per deployment.
+kafka:
+  # False makes a run write to Postgres and announce nothing. The right
+  # setting while the broker is down and the cleaning is what you are working
+  # on; `--no-emit` forces it off for a single run.
+  enabled: true
+
+  # The `.v1` is the wire contract, not decoration. A breaking change to the
+  # payload means a new topic rather than a new field: a consumer reading v1
+  # must never be handed a v2 message on the same topic. scripts/verify_env.py
+  # checks for this exact name.
+  topic: pipeline.run.completed.v1
+
+  # Used only when the topic is created. One partition is enough for an event
+  # stream keyed by job id and read by a single consumer, and more would buy
+  # parallelism nothing needs at the cost of ordering between jobs.
+  partitions: 1
+
+  # One, because a single-broker cluster cannot satisfy more. This is the same
+  # constraint docker-compose.yml handles for the internal topics, whose
+  # default of three would leave them uncreatable.
+  replication_factor: 1
+
+  # Seconds to wait for the broker to acknowledge before the publish is
+  # reported as failed. Generous on purpose: the alternative to waiting is
+  # recording a run as announced when nobody heard it.
+  delivery_timeout: 30

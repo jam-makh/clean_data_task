@@ -6,18 +6,23 @@ The Stage 2 chain, wired end to end: read, clean, count, write.
       -> spark.pipeline.run          the profile's steps, in order
       -> spark.pipeline.report       one pass over the marks the stages left
       -> db.writer.write             project, stage, upsert
-      -> RunResult                   what the completion event will carry
+      -> kafka.producer.emit         announce what the load did
+      -> RunResult                   the same thing, for the caller
 
 Everything above this line already existed and was reachable only from tests.
 That is the gap this module closes: a pipeline nothing calls is a pipeline
 whose integration is unproven, however green its unit tests are.
 
-Two things are deliberately not here. **Emitting** the completion event is the
-producer's job and arrives next; ``RunResult`` is shaped to be its payload so
-that adding it is a call and not a refactor. And the **command line** is
-``main.py``'s, because the repo has one entry point and one ``main`` -- this
-module is a function, so a test can drive the whole chain without argparse and
-a consumer can later drive it without a shell.
+The **command line** is deliberately not here. It is ``main.py``'s, because
+the repo has one entry point and one ``main`` -- this module is a function, so
+a test can drive the whole chain without argparse and a consumer can later
+drive it without a shell.
+
+Order matters at the end: the rows are committed before the event is
+published, never the other way round. An event announcing a load that is not
+in the table yet is a race a consumer cannot defend against, whereas rows that
+are written and not yet announced are merely un-announced -- and re-emitting
+is safe, because the payload is derived from the run.
 
 The cache is not incidental
 ---------------------------
@@ -30,7 +35,7 @@ three, and on 265k rows the difference is minutes.
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from src.config import runtime
@@ -57,6 +62,9 @@ class RunResult:
         same rules, same answer" is checkable from the event alone.
     :param seconds: Wall clock, for the event and for noticing a run that
         suddenly takes four times as long.
+    :param event: The completion event as published, or None when the run did
+        not emit. Held so a caller can log or assert on exactly what went out
+        rather than on a reconstruction of it.
     """
 
     sync_job_id: str
@@ -68,6 +76,7 @@ class RunResult:
     fingerprint: str
     seconds: float
     metrics: dict = field(default_factory=dict)
+    event: dict | None = None
 
     @property
     def rows_dropped(self) -> int:
@@ -83,9 +92,10 @@ class RunResult:
         written = "not written" if self.rows_written is None else (
             f"{self.rows_written} written"
         )
+        announced = "announced" if self.event else "not announced"
         return (
             f"job {self.sync_job_id} | {self.profile} | "
-            f"{self.rows_read} read, {written} | "
+            f"{self.rows_read} read, {written}, {announced} | "
             f"{self.seconds:.1f}s | config {self.fingerprint}"
         )
 
@@ -108,7 +118,9 @@ def run(
     *,
     profile: str | None = None,
     write: bool | None = None,
+    emit: bool | None = None,
     connection: Connection | None = None,
+    broker=None,
     spark=None,
 ) -> RunResult:
     """
@@ -120,7 +132,10 @@ def run(
         reads, cleans and reports -- which is the state you want when the
         question is whether the cleaning is right rather than whether the
         write is.
+    :param emit: Override ``kafka.enabled`` for this run.
     :param connection: Where to write; read from the environment when absent.
+    :param broker: Where to announce; read from config and the environment
+        when absent.
     :param spark: An existing session, for a caller that already has one. A
         session is created and left running when absent, because the caller
         that did not pass one may still want the frame afterwards.
@@ -179,7 +194,7 @@ def run(
         connection = connection if connection is not None else load_connection()
         rows_written = writer.write(cleaned, connection, sync_job_id)
 
-    return RunResult(
+    result = RunResult(
         sync_job_id=sync_job_id,
         source=source,
         profile=chosen.name,
@@ -190,3 +205,14 @@ def run(
         seconds=time.monotonic() - started,
         metrics=metrics,
     )
+
+    # After the write, and only after. See the module docstring: an event that
+    # announces rows the table does not have yet is a race the consumer cannot
+    # defend against.
+    should_emit = config.kafka.enabled if emit is None else emit
+    if not should_emit:
+        return result
+
+    from src.kafka.producer import emit as announce
+
+    return replace(result, event=announce(result, broker, engine="spark"))

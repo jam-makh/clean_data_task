@@ -10,6 +10,7 @@ given up the only thing it was for.
 """
 
 import copy
+from pathlib import Path
 
 import pytest
 import yaml
@@ -269,3 +270,59 @@ def test_the_shipped_config_selects_spark_and_writes():
     assert config.engine == "spark"
     assert config.database.enabled is True
     assert config.database.batch_size >= 1000
+
+
+# --- Stage 2: the event contract -------------------------------------------
+
+
+def test_kafka_defaults_when_the_section_is_absent():
+    parsed = runtime_module.parse({"paths": {"source": "a.csv", "output": "b.xlsx"}})
+
+    assert parsed.kafka.enabled is True
+    assert parsed.kafka.topic.endswith(".v1")
+    assert parsed.kafka.replication_factor == 1
+
+
+def test_the_shipped_topic_is_the_one_the_preflight_check_expects():
+    """
+    ``scripts/verify_env.py`` hardcodes the topic name, deliberately -- it has
+    to report a broken environment while the environment is broken, so it
+    imports nothing from the project. That duplication is only safe if
+    something asserts the two agree.
+    """
+    import re
+
+    source = Path("scripts/verify_env.py").read_text(encoding="utf-8")
+    expected = re.search(r'EXPECTED_TOPIC = "([^"]+)"', source).group(1)
+
+    assert runtime_module.load().kafka.topic == expected
+
+
+@pytest.mark.parametrize("key", ["partitions", "replication_factor", "delivery_timeout"])
+@pytest.mark.parametrize("bad", [0, -1, "1", 1.5, True])
+def test_a_bad_kafka_number_is_rejected(key, bad):
+    with pytest.raises(ConfigError, match=key):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {key: bad},
+        })
+
+
+def test_an_empty_topic_is_rejected():
+    """
+    Auto-create is off, so an empty or whitespace topic would fail at publish
+    time against a broker rather than at load time against the file.
+    """
+    with pytest.raises(ConfigError, match="kafka.topic"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"topic": "   "},
+        })
+
+
+def test_a_non_boolean_kafka_enabled_is_rejected():
+    with pytest.raises(ConfigError, match="kafka.enabled"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"enabled": "off"},
+        })
