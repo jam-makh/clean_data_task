@@ -258,7 +258,25 @@ def test_an_unparseable_timestamp_is_still_left_blank():
 def test_non_datetime_columns_are_untouched():
     out = render_dates(precision_frame())
     assert list(out["txn_id"]) == ["a", "b", "c"]
-    assert list(out["txn_date_time_precision"]) == ["SECOND", "MINUTE", "DAY"]
+
+
+def test_the_precision_companion_is_read_and_then_dropped():
+    """
+    It is an input to rendering, not a column of the sheet.
+
+    The rendered value already says which precision it was -- a DAY row is
+    written as a bare date -- so a reader needs the companion only to produce
+    that, never to read it. Dropping it any earlier would be the bug: the
+    writer could no longer tell a date-only row from a real midnight, and
+    would put 00:00:00 on every one of them.
+    """
+    rendered = render_dates(precision_frame())
+    assert "txn_date_time_precision" not in rendered.columns
+    assert list(rendered["txn_date_time_cleaned"]) == [
+        "10-03-2022 00:51:36",   # SECOND, and the time is stated
+        "09-07-2022 17:49",      # MINUTE, no seconds were ever recorded
+        "22-04-2022",            # DAY, no time of day was ever recorded
+    ]
 
 
 def test_rendering_leaves_the_callers_frame_alone():

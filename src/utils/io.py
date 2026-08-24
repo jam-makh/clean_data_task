@@ -60,6 +60,12 @@ PRECISION_COMPANION = {
     "txn_ts": "txn_ts_precision",
 }
 
+# The companion columns themselves, which are read to render and then dropped:
+# the sheet states one timestamp per row, and the precision is visible in how
+# that timestamp is written. `columns.RENDER_ONLY` is the same list under the
+# names the pipeline uses; these are the names a sheet carries.
+RENDER_ONLY = set(PRECISION_COMPANION.values())
+
 # Extensions this reader understands. A source outside this set is rejected by
 # name rather than guessed at: reading a .txt as a CSV usually "works" and
 # produces one column of garbage, which is worse than refusing.
@@ -189,7 +195,13 @@ def render_dates(frame: pd.DataFrame, formats: dict | None = None):
             out[column] = out[column].astype(object).where(
                 ~missing, UNKNOWN_TEXT
             )
-    return out
+
+    # The precision companion has now done its job. It is an input to this
+    # function, not a column of the sheet: it decided whether each timestamp
+    # above was written with a time of day, and the rendered value says which
+    # it was. Dropped last, so every branch above could still read it.
+    spent = [c for c in out.columns if str(c).lower() in RENDER_ONLY]
+    return out.drop(columns=spent)
 
 
 def write_workbook(

@@ -19,6 +19,13 @@ SUPERSEDED = {
     "TXN_DATE_TIME": ("TXN_DATE_TIME_CLEANED", "TXN_TS"),
     "SETTLE_DATE": "SETTLE_DATE_CLEANED",
     "TXN_AMOUNT": "TXN_AMOUNT_CLEANED",
+    # The cleaned balance states one only where the arithmetic proves it, so
+    # it is not a strict superset of the stated column the way the others are:
+    # a third of the source's values are withheld as unverifiable, and the
+    # sheet says UNKNOWN there rather than repeating a figure that could not
+    # be checked. What the source actually said is in `raw_transactions`,
+    # which is where the unedited record belongs.
+    "RUNNING_BALANCE": "RUNNING_BALANCE_CLEANED",
     "MERCHANT_NAME": "MERCHANT_NAME_CLEANED",
     "MERCHANT_CITY": "MERCHANT_CITY_CLEANED",
     "MERCHANT_COUNTRY": "MERCHANT_COUNTRY_CLEANED",
@@ -37,69 +44,83 @@ SUPERSEDED = {
     "IS_HOLIDAY_MONTH": "IS_HOLIDAY_MONTH_CLEANED",
 }
 
-# Working columns: each one is needed to compute something, and each one would
-# be a second version of a fact already on the sheet if it were shown.
+# Working columns: everything the pipeline computes that is not the cleaned
+# counterpart of a source column.
 #
-# PROCESSING_TYPE_CLEANED is the processing_codes sheet, repeated once per row,
-# and the code it was looked up by is on the transaction. MCC_CATEGORY is the
-# mcc_codes sheet, the same way. MCC_CODE_SUGGESTED has been folded into
-# MCC_CODE_CLEANED, which now carries the code that survived validation.
-# MERCHANT_COUNTRY_EXPECTED is what MERCHANT_COUNTRY_CLEANED was resolved from.
+# The rule the cleaned sheet follows is deliberately blunt: **one column per
+# source column** -- the cleaned version where a stage produced one, the
+# original where none did, and nothing else. A reader of that sheet is asking
+# "what does this transaction say", and every column answers it once.
 #
-# MERCHANT_KIND, MERCHANT_RECOGNISED and INTERNAL_MOVEMENT are all
-# MATCHES_STATUS_CLEANED again. The three merchant kinds and the three
-# statuses are the same three states under two vocabularies -- Merchant is
-# Confirmed, Internal is Not a merchant, Unidentified is Pending -- and the
-# two booleans each answer one of them yes or no. The status column is the one
-# that goes out, because it is the column the source itself had. MERCHANT_TYPE
-# is shown alongside it and is not a fourth spelling of the same thing: it
-# answers the prior question -- whether the row has a counterparty at all --
-# where the status answers how far naming that counterparty got.
+# Nothing here is discarded. Each one stays on the frame for the rest of the
+# run, each one's totals are in `cleaning_report` -- how many merchants
+# resolved, how many rows were internal transfers, how many balances were
+# derived rather than stated -- and each one is in AUDIT_COLUMNS below, which
+# is what reaches the database in Stage 2. The question a status column
+# answers is "how do you know", and that question is answered in the report
+# and in the audit trail rather than in a second column on the sheet.
 #
-# LOCATION_TYPE was on the sheet and is now a working column, for the reason
-# IS_ECOMMERCE is one: it is a reading of MERCHANT_CITY_CLEANED, which is
-# beside it and spells the marker out in full. The one thing it said that the
-# city did not -- that a row names no place because it is internal traffic --
-# is now stated where it belongs, on MERCHANT_TYPE, as a fact about the
-# counterparty rather than about the geography.
+# The three groups, and why each is not a cleaned column:
 #
-# VALIDATION_FLAGS recorded every cross-field contradiction found. Each one is
-# now either corrected in place or shown in its own column, so the flag string
-# would only restate a value already on the row: a wrong country is corrected
-# in MERCHANT_COUNTRY_CLEANED, a wrong ATM code in MCC_CODE_CLEANED, a settle
-# date before its transaction in SETTLE_DATE_STATUS and the anomaly_settlement
-# sheet. The counts stay in cleaning_report, which is where the question "how
-# much was wrong" belongs -- a per-row column answers "is this row wrong",
-# which the corrected columns already answer.
+# 1. Lookups repeated per row. MCC_CATEGORY is the mcc_codes sheet;
+#    MCC_CODE_SUGGESTED has been folded into MCC_CODE_CLEANED, which carries
+#    the code that survived validation; MERCHANT_COUNTRY_EXPECTED is what
+#    MERCHANT_COUNTRY_CLEANED was resolved from.
+#
+# 2. Restatements of a column that is already on the sheet. MERCHANT_KIND,
+#    MERCHANT_RECOGNISED, INTERNAL_MOVEMENT and MERCHANT_TYPE are all
+#    MATCHES_STATUS_CLEANED under other vocabularies -- Merchant is Confirmed,
+#    Internal is Not a merchant, Unidentified is Pending. LOCATION_TYPE and
+#    IS_ECOMMERCE are readings of MERCHANT_CITY_CLEANED, which spells the
+#    marker out in full. HAS_TERMINAL is a reading of TERMINAL_ID, AUTH_CODE_VALID
+#    of AUTH_CODE.
+#
+# 3. Verdicts on how a value was arrived at. The timestamp qualifiers describe
+#    the parse rather than the transaction; the settlement and balance
+#    statuses say how far each value could be verified; MCC_CONFIDENCE and
+#    MERCHANT_PROCESSOR say how the code and the name were reached; the macro
+#    coverage trio distinguishes a stated value from a recovered one, and the
+#    cleaned value is the same number either way.
+#
+# VALIDATION_FLAGS is group 3 as well: every contradiction it recorded is
+# either corrected in the cleaned column or counted in the report.
 INTERNAL = [
-    "PROCESSING_TYPE_CLEANED",
     "MCC_CATEGORY",
     "MCC_CODE_SUGGESTED",
     "MERCHANT_COUNTRY_EXPECTED",
     "MERCHANT_KIND",
     "MERCHANT_RECOGNISED",
     "INTERNAL_MOVEMENT",
+    "MERCHANT_TYPE",
     "LOCATION_TYPE",
     "VALIDATION_FLAGS",
-    # Provenance columns: each says how a value was arrived at rather than what
-    # the value is. They are working columns for the same reason the ones above
-    # are -- every one is still computed, still counted in cleaning_report, and
-    # still available to a caller holding the frame -- they are simply not a
-    # second column on a sheet whose job is to state the cleaned row.
-    #
-    # The three timestamp qualifiers describe the parse, not the transaction.
-    # TXN_TS_PRECISION is the exception that stays: the rendered value itself
-    # changes with it, because a DAY row is written without a time of day, so
-    # it is the one qualifier a reader needs in order to read the column
-    # beside it.
+    # How the timestamp was read. TXN_TS_PRECISION is absent from this list
+    # and still never reaches the sheet: it is in RENDER_ONLY below, because
+    # the writer has to read it to know whether this row's timestamp may be
+    # written with a time of day at all. Dropping it here instead would put a
+    # 00:00:00 on every date-only row, which invents a reading the source
+    # never gave.
     "TXN_TS_STATUS",
     "TXN_TS_SOURCE",
     "TXN_TS_AMBIGUOUS",
-    # Both are a verdict on a column already on the row: AUTH_CODE_VALID on
-    # AUTH_CODE, IS_ECOMMERCE on MERCHANT_CITY_CLEANED, which spells the marker
-    # out. The counts behind both verdicts stay in cleaning_report.
+    "TXN_TS_UTC_OFFSET",
+    # How far each value could be verified. SETTLE_DATE_STATUS also selects
+    # the pending_settlement and anomaly_settlement sheets, which is done from
+    # the full frame in `build_sheets` rather than from this view.
+    "SETTLE_DATE_STATUS",
+    "RUNNING_BALANCE_STATUS",
+    # The second balance: what the balance would be if the account's own
+    # transactions were the only thing that moved it. A weaker claim than
+    # RUNNING_BALANCE_CLEANED makes, and two balance columns side by side
+    # invite a total computed from the wrong one.
+    "RUNNING_BALANCE_ADJUSTED",
+    "RUNNING_BALANCE_ADJUSTED_STATUS",
+    # Verdicts on a column already on the row.
     "AUTH_CODE_VALID",
+    "HAS_TERMINAL",
     "IS_ECOMMERCE",
+    "MCC_CONFIDENCE",
+    "MERCHANT_PROCESSOR",
     # The macro coverage trio distinguished a value the source stated from one
     # the series recovered. The cleaned value is the same number either way,
     # and how many of each there were is a property of the run rather than of
@@ -160,23 +181,30 @@ AUDIT_COLUMNS = [
     "TXN_TS_SOURCE",
     "TXN_TS_PRECISION",
     "TXN_TS_AMBIGUOUS",
+    "TXN_TS_UTC_OFFSET",
     "SETTLE_DATE_FORMAT",
     "SETTLE_DATE_STATUS",
     # What was done to the money, and on whose authority.
     "TXN_AMOUNT_COERCION",
     "TXN_AMOUNT_SIGN",
     "PROCESSING_CODE_DIRECTION",
-    # What the arithmetic could and could not prove about the balance.
+    # What the arithmetic could and could not prove about the balance, and the
+    # second balance itself -- the projection that is stated wherever there is
+    # an anchor to count from, rather than only where it can be proven.
     "RUNNING_BALANCE_STATUS",
+    "RUNNING_BALANCE_ADJUSTED",
     "RUNNING_BALANCE_ADJUSTED_STATUS",
     "RUNNING_BALANCE_CHAIN_BREAK",
     # Identity: what collapsed into this row, and whether its key was shared.
     "EXACT_DUPLICATE_COPIES",
     "TXN_ID_COLLISION",
-    # Which rule decided the MCC, and how far the merchant name resolved.
+    # Which rule decided the MCC, and how far the merchant name resolved --
+    # including whether the row had a counterparty at all, or was the bank
+    # moving the customer's own money.
     "MCC_SIGNAL",
     "MCC_CONFIDENCE",
     "MERCHANT_PROCESSOR",
+    "MERCHANT_TYPE",
     # What was recoverable, and what was a sentinel rather than a gap.
     "HAS_TERMINAL",
     "AUTH_CODE_VALID",
@@ -191,72 +219,63 @@ AUDIT_COLUMNS = [
     "VALIDATION_FLAGS",
 ]
 
-# Identity, then money, then merchant, then codes, then flags. Any column not
-# named here keeps its position at the end, so a new derived column shows up
-# rather than silently vanishing.
+# Identity, then time, then money, then merchant, then codes. One entry per
+# source column: the cleaned counterpart where a stage produced one, the
+# original where none did. Any column not named here keeps its position at the
+# end, so a new derived column shows up rather than silently vanishing --
+# which is what makes a missing INTERNAL entry visible instead of silent.
 PRESENTATION_ORDER = [
-    "TXN_ID_CLEANED",
+    "TXN_ID_CLEANED",              # <- TXN_ID
     "TXN_SEQ",
     "ACCOUNT_ID",
     "USER_ID",
     # Both profiles' timestamps, in one list: a run produces one or the other,
     # never both, and naming both here means neither file has to be special
-    # cased. The two qualifiers that survive sit beside the reading for the
-    # same reason SETTLE_DATE_STATUS sits beside its date -- how the value is
-    # rendered depends on the precision, and the offset is what the rendered
-    # clock is a clock in.
-    "TXN_DATE_TIME_CLEANED",
-    "TXN_TS",
+    # cased.
+    "TXN_DATE_TIME_CLEANED",       # <- TXN_DATE_TIME, v4 profile
+    "TXN_TS",                      # <- TXN_DATE_TIME, forecast profile
+    # Not a column on the sheet. It survives this list only so the writer can
+    # read it, and is dropped once it has been read -- see RENDER_ONLY.
     "TXN_TS_PRECISION",
-    "TXN_TS_UTC_OFFSET",
-    "SETTLE_DATE_CLEANED",
-    "SETTLE_DATE_STATUS",
+    "SETTLE_DATE_CLEANED",         # <- SETTLE_DATE
     "TXN_TYPE",
-    "TXN_AMOUNT_CLEANED",
+    "TXN_AMOUNT_CLEANED",          # <- TXN_AMOUNT
     "TXN_CCY",
     "BILLING_AMOUNT",
     "BILLING_CURRENCY",
     "FX_RATE",
-    # The source's own balance, then what could be verified about it. The
-    # original stays on the sheet rather than being superseded: a third of its
-    # values are withheld as unverifiable, and a reader who wants to know what
-    # the file actually said should not have to open another sheet to find out.
-    "RUNNING_BALANCE",
-    "RUNNING_BALANCE_CLEANED",
-    "RUNNING_BALANCE_STATUS",
-    # The second balance, and never merged into the first. The cleaned column
-    # states a balance only where the arithmetic proves one; this one states
-    # what the balance would be if the account's own transactions were the
-    # only thing that moved it, which is a different claim and a weaker one.
-    # Its own status column says how far it can be trusted per row, and the
-    # two sit adjacent so neither can be read without the other.
-    "RUNNING_BALANCE_ADJUSTED",
-    "RUNNING_BALANCE_ADJUSTED_STATUS",
-    # Confidence sits beside the merchant name rather than with the other MCC
-    # columns: it is the first thing a reader needs after knowing who the
-    # merchant is, and the code itself is only meaningful once it is trusted.
-    "MERCHANT_NAME_CLEANED",
-    # What the name is: a counterparty, or the bank moving the customer's own
-    # money. It sits immediately after the name because it is what tells a
-    # reader how to read it -- CARD SETTLEMENT beside CARREFOUR is only
-    # confusing until the column beside it says one is not a merchant.
-    "MERCHANT_TYPE",
-    "MCC_CONFIDENCE",
-    "MERCHANT_PROCESSOR",
-    "MERCHANT_CITY_CLEANED",
-    "MERCHANT_COUNTRY_CLEANED",
-    "PROCESSING_CODE_CLEANED",
-    "MCC_CODE_CLEANED",
+    # One balance, the one the arithmetic could verify. Where it could not,
+    # the cell says UNKNOWN rather than repeating a figure nobody checked.
+    "RUNNING_BALANCE_CLEANED",     # <- RUNNING_BALANCE
+    "MERCHANT_NAME_CLEANED",       # <- MERCHANT_NAME
+    "MERCHANT_CITY_CLEANED",       # <- MERCHANT_CITY
+    "MERCHANT_COUNTRY_CLEANED",    # <- MERCHANT_COUNTRY
+    "PROCESSING_CODE_CLEANED",     # <- PROCESSING_CODE
+    "PROCESSING_TYPE_CLEANED",     # <- PROCESSING_TYPE
+    "MCC_CODE_CLEANED",            # <- MCC_CODE
     "TERMINAL_ID",
-    "HAS_TERMINAL",
     "AUTH_CODE",
-    "MATCHES_STATUS_CLEANED",
+    "MATCHES_STATUS_CLEANED",      # <- MATCHES_STATUS
     # Last: these are properties of the month the row falls in rather than of
     # the transaction, so they read as context after the row has been read.
-    "INTEREST_RATE_INDEX_CLEANED",
-    "INFLATION_INDEX_CLEANED",
-    "IS_HOLIDAY_MONTH_CLEANED",
+    "INTEREST_RATE_INDEX_CLEANED",  # <- INTEREST_RATE_INDEX
+    "INFLATION_INDEX_CLEANED",      # <- INFLATION_INDEX
+    "IS_HOLIDAY_MONTH_CLEANED",     # <- IS_HOLIDAY_MONTH
 ]
+
+# Columns the writer reads and does not write.
+#
+# A timestamp is rendered to the precision it was actually observed at, so a
+# row whose source gave no time of day is written as a bare date. The writer
+# needs the precision column to know that, and a reader of the sheet does not
+# need it afterwards -- the rendered value already shows which it was. So it
+# passes through `presented` and `render_dates` consumes it.
+#
+# The alternative is putting it in INTERNAL, which drops it one step earlier,
+# before the writer can see it. Every date-only row would then be written
+# 00:00:00: a time of day the source never recorded, indistinguishable on the
+# sheet from a transaction that really happened at midnight.
+RENDER_ONLY = ["TXN_TS_PRECISION", "TXN_DATE_TIME_PRECISION"]
 
 
 def presented(df: pd.DataFrame) -> pd.DataFrame:

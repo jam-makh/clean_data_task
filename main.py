@@ -120,10 +120,16 @@ def build_sheets(
             sorted(reference.items()), columns=["MCC_CODE", "CATEGORY"]
         )
 
-    if "SETTLE_DATE_STATUS" in view.columns:
-        status = view["SETTLE_DATE_STATUS"].astype(str)
-        sheets["pending_settlement"] = view[status == "MISSING"]
-        sheets["anomaly_settlement"] = view[status == "ANOMALOUS"]
+    # Selected from the full frame rather than from the view. The status is a
+    # working column and does not appear on any sheet, but it is still what
+    # decides which rows these two sheets hold -- and a sheet whose selection
+    # criterion had to be visible in its own output would be a strange
+    # constraint. The rows written are the view's, so all three sheets carry
+    # the same columns.
+    if "SETTLE_DATE_STATUS" in cleaned.columns:
+        status = cleaned["SETTLE_DATE_STATUS"].astype(str)
+        sheets["pending_settlement"] = view[(status == "MISSING").to_numpy()]
+        sheets["anomaly_settlement"] = view[(status == "ANOMALOUS").to_numpy()]
 
     merchant_step = cleaner.step("merchant")
     if merchant_step is not None:

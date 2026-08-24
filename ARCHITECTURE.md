@@ -465,12 +465,14 @@ standing orders, sweeps between a customer's own accounts. Counted as merchants,
 | `Internal` | money moving inside the bank | `Not a merchant` | no — already decided |
 | `Unidentified` | a counterparty nobody has named yet | `Pending` | **yes** |
 
-The sheet shows two of these, not three, under `MERCHANT_TYPE`: `Merchant` or
-`Internal`. A name nobody has resolved yet is still a counterparty, and how far
-resolving it got is `MATCHES_STATUS`'s question, one column along. `MERCHANT_TYPE`
-is also what replaced `LOCATION_TYPE` on the sheet — the fact worth carrying was
-never about geography but about whether the row had a counterparty at all, and
-the rest of what that column said is `MERCHANT_CITY_CLEANED` restated.
+`MERCHANT_TYPE` collapses these to the two a reader is choosing between —
+`Merchant` or `Internal`. A name nobody has resolved yet is still a
+counterparty, and how far resolving it got is `MATCHES_STATUS`'s question.
+
+Both `MERCHANT_TYPE` and `LOCATION_TYPE` are working columns: they are on the
+frame and in the audit trail, not on the cleaned sheet, which carries one
+column per source column and no verdicts. `MATCHES_STATUS` is the one that
+goes out, because it is the column the source itself had.
 
 An internal row is named by its movement, spelled in words: `CARD SETTLEMENT`,
 `STANDING ORDER`, `INTERNAL TRANSFER`. The kind token behind it (`STANDING_ORDER`)
@@ -971,6 +973,27 @@ side while a stage decides.
 `TXN_ID`, so the workbook is self-auditing. The cleaned sheets then show **only**
 the cleaned columns — a text `TXN_AMOUNT` beside a float one invites a total
 computed from the wrong column.
+
+### 1b. The cleaned sheet is one column per source column
+
+Exactly one: the cleaned counterpart where a stage produced one, the original
+where none did, and nothing else. Every column on that sheet answers *what
+does this transaction say*.
+
+Everything a stage derives that is not a cleaned counterpart — statuses,
+confidences, precisions, coverage flags, the projected balance — answers a
+different question, *how do you know*, and is answered in two other places
+instead: the totals in `cleaning_report`, and the per-row detail in
+`AUDIT_COLUMNS`, which is what reaches the database in Stage 2. Nothing is
+discarded; `INTERNAL` in `utils/columns.py` is a list of what the writer
+hides, not of what the pipeline forgets.
+
+One exception, and it is not really one: `TXN_TS_PRECISION` passes through to
+the writer and is dropped by it. The writer needs it to know whether a row may
+be written with a time of day at all. Hiding it a step earlier would put
+`00:00:00` on all 18,592 date-only rows — a reading the source never gave, and
+indistinguishable on the sheet from the 51 transactions that really did happen
+at midnight.
 
 ### 2. Rules in JSON, logic in Python
 

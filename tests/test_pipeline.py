@@ -178,6 +178,40 @@ def test_cleaned_sheets_carry_no_superseded_raw_columns(
     )
 
 
+def test_the_sheet_is_one_column_per_source_column(
+    tmp_path, transactions, mcc_reference
+):
+    """
+    The rule the cleaned sheet follows.
+
+    Every source column appears exactly once -- as its cleaned counterpart
+    where a stage produced one, as itself where none did -- and nothing else
+    appears at all. No status, no confidence, no provenance: those answer
+    "how do you know", which is what `cleaning_report` and the audit columns
+    are for.
+    """
+    from src.utils.columns import SUPERSEDED
+
+    cleaner = TransactionCleaner(mcc_reference=mcc_reference)
+    cleaned = cleaner.run(transactions)
+    sheets = build_sheets(transactions, cleaned, cleaner, mcc_reference)
+    destination = tmp_path / "out.xlsx"
+    write_workbook(destination, sheets)
+    columns = set(
+        pd.ExcelFile(destination).parse("cleaned_transactions").columns
+    )
+
+    def replacements(source: str) -> set[str]:
+        """:returns: The cleaned names that may stand in for a raw column."""
+        clean = SUPERSEDED.get(source)
+        names = (clean,) if isinstance(clean, str) else (clean or ())
+        return {n.lower() for n in names} | {source.lower()}
+
+    for source in transactions.columns:
+        assert replacements(source) & columns, f"{source} lost its column"
+    assert len(columns) == len(transactions.columns), sorted(columns)
+
+
 def test_presented_keeps_a_raw_column_with_no_replacement(
     transactions,
     mcc_reference,
