@@ -67,13 +67,22 @@ SUPERSEDED = {
 #    the code that survived validation; MERCHANT_COUNTRY_EXPECTED is what
 #    MERCHANT_COUNTRY_CLEANED was resolved from.
 #
-# 2. Restatements of a column that is already on the sheet. MERCHANT_KIND,
-#    MERCHANT_RECOGNISED, INTERNAL_MOVEMENT and MERCHANT_TYPE are all
-#    MATCHES_STATUS_CLEANED under other vocabularies -- Merchant is Confirmed,
-#    Internal is Not a merchant, Unidentified is Pending. LOCATION_TYPE and
-#    IS_ECOMMERCE are readings of MERCHANT_CITY_CLEANED, which spells the
-#    marker out in full. HAS_TERMINAL is a reading of TERMINAL_ID, AUTH_CODE_VALID
-#    of AUTH_CODE.
+# 2. Restatements of one another, or of a column already on the sheet.
+#    MATCHES_STATUS_CLEANED, MERCHANT_KIND, MERCHANT_RECOGNISED,
+#    INTERNAL_MOVEMENT and MERCHANT_TYPE are five spellings of one three-state
+#    fact -- Merchant is Confirmed, Internal is Not a merchant, Unidentified is
+#    Pending -- and the two booleans each answer one of them yes or no.
+#    LOCATION_TYPE and IS_ECOMMERCE are readings of MERCHANT_CITY_CLEANED,
+#    which spells the marker out in full. HAS_TERMINAL is a reading of
+#    TERMINAL_ID, AUTH_CODE_VALID of AUTH_CODE.
+#
+#    MATCHES_STATUS_CLEANED is in this group rather than being the cleaned
+#    counterpart of MATCHES_STATUS, despite the name. Every other cleaned
+#    column repairs what the source said; this one is recomputed from scratch
+#    against the current merchant master and agrees with the incoming status
+#    only by coincidence. It is a verdict this run reached, which is what the
+#    report and the audit trail are for -- and `merchant_review` is the sheet
+#    that acts on it.
 #
 # 3. Verdicts on how a value was arrived at. The timestamp qualifiers describe
 #    the parse rather than the transaction; the settlement and balance
@@ -88,6 +97,7 @@ INTERNAL = [
     "MCC_CATEGORY",
     "MCC_CODE_SUGGESTED",
     "MERCHANT_COUNTRY_EXPECTED",
+    "MATCHES_STATUS_CLEANED",
     "MERCHANT_KIND",
     "MERCHANT_RECOGNISED",
     "INTERNAL_MOVEMENT",
@@ -205,6 +215,7 @@ AUDIT_COLUMNS = [
     "MCC_CONFIDENCE",
     "MERCHANT_PROCESSOR",
     "MERCHANT_TYPE",
+    "MATCHES_STATUS_CLEANED",
     # What was recoverable, and what was a sentinel rather than a gap.
     "HAS_TERMINAL",
     "AUTH_CODE_VALID",
@@ -255,7 +266,6 @@ PRESENTATION_ORDER = [
     "MCC_CODE_CLEANED",            # <- MCC_CODE
     "TERMINAL_ID",
     "AUTH_CODE",
-    "MATCHES_STATUS_CLEANED",      # <- MATCHES_STATUS
     # Last: these are properties of the month the row falls in rather than of
     # the transaction, so they read as context after the row has been read.
     "INTEREST_RATE_INDEX_CLEANED",  # <- INTEREST_RATE_INDEX
@@ -311,14 +321,12 @@ def presented(df: pd.DataFrame) -> pd.DataFrame:
 # text the source held, and the raw values are one sheet away under the bare
 # name, so the distinction stays live.
 #
-# MATCHES_STATUS is the exception, because it is not a cleaned value. Every
-# other cleaned column is a repair of what the source said; this one is
-# recomputed from scratch against the current merchant master, and agrees with
-# the incoming status only by coincidence. Calling it cleaned would claim a
-# provenance it does not have.
-RENAMED = {
-    "MATCHES_STATUS_CLEANED": "MATCHES_STATUS",
-}
+# Empty, and the mechanism is kept rather than the entry. It held exactly one
+# rename, MATCHES_STATUS_CLEANED to MATCHES_STATUS, for the one published
+# column that was not a repair of what the source said -- and that column is a
+# working column now, so there is nothing left to rename. A rename rule for a
+# column no sheet carries is the kind of thing that goes quietly wrong later.
+RENAMED: dict[str, str] = {}
 
 
 def output_names(df: pd.DataFrame) -> pd.DataFrame:

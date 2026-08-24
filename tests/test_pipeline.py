@@ -201,15 +201,28 @@ def test_the_sheet_is_one_column_per_source_column(
         pd.ExcelFile(destination).parse("cleaned_transactions").columns
     )
 
-    def replacements(source: str) -> set[str]:
-        """:returns: The cleaned names that may stand in for a raw column."""
-        clean = SUPERSEDED.get(source)
-        names = (clean,) if isinstance(clean, str) else (clean or ())
-        return {n.lower() for n in names} | {source.lower()}
-
+    expected = set()
     for source in transactions.columns:
-        assert replacements(source) & columns, f"{source} lost its column"
-    assert len(columns) == len(transactions.columns), sorted(columns)
+        clean = SUPERSEDED.get(source)
+        names = [clean] if isinstance(clean, str) else list(clean or [])
+        published = [
+            name for name in names
+            if name in cleaned.columns and name not in INTERNAL
+        ]
+        if published:
+            expected.add(published[0].lower())
+        elif not names:
+            # No stage claimed it, so the source column stands as it arrived.
+            expected.add(source.lower())
+        # Otherwise the derived form is a working column and neither version
+        # goes out -- MATCHES_STATUS is the one such case. It is not a repair
+        # of what the source said but a verdict this run reached against the
+        # current merchant master, so it belongs with the other verdicts.
+
+    assert columns == expected, (
+        f"unexpected: {sorted(columns - expected)}, "
+        f"missing: {sorted(expected - columns)}"
+    )
 
 
 def test_presented_keeps_a_raw_column_with_no_replacement(
