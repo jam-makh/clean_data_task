@@ -33,6 +33,7 @@ where this test starts and reads exactly what this test produced, which is the
 same reason ``test_kafka_producer.py`` gives for doing it that way.
 """
 
+import time
 import uuid
 
 import pytest
@@ -407,10 +408,22 @@ def test_the_consumer_reads_what_the_producer_published(
 
     dummy_producer.emit(absent, broker)
 
-    messages = consumer_module.poll_batch(
-        assigned, kafka_settings.load_subscription(), batch_size=10
-    )
-    ids, errors = consumer_module.decode_all(messages)
+    # Polled until it turns up rather than once, for two reasons that are both
+    # about this being a real broker. The assigned position is where the topic
+    # stood when the fixture was built, so anything this module published
+    # earlier is still ahead of us in the log and comes out first. And a
+    # message that has been acknowledged is not necessarily one the consumer
+    # has fetched yet -- a single poll can legitimately return nothing.
+    subscription = kafka_settings.load_subscription()
+    ids: list = []
+    errors: list = []
+    deadline = time.monotonic() + 30
+    while absent not in ids and time.monotonic() < deadline:
+        found, failed = consumer_module.decode_all(
+            consumer_module.poll_batch(assigned, subscription, batch_size=10)
+        )
+        ids.extend(found)
+        errors.extend(failed)
 
     assert errors == [], f"a real message failed to decode: {errors}"
     assert absent in ids, (

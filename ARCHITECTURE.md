@@ -1200,3 +1200,146 @@ With the registry empty it compares the two readers — which is not a vacuous
 assertion. It says that 11,417 rows and 22 columns of a genuinely dirty
 extract arrive identically through two entirely different readers, including
 which cells are null and which are the empty string.
+
+---
+
+## The streaming path
+
+The batch pipeline cleans a file. The streaming path cleans a *row*, on being
+told one arrived, and it exists to answer a different question: not "clean this
+extract" but "keep this table clean as things land in it".
+
+Everything about it is arranged so that it is the same pipeline. `run_rows`
+sits beside `run` in `src/runner.py` and differs in where the rows come from
+and nothing else — same profile detection, same steps, same policy, same
+contract, same upsert. Writing a second pipeline for the streaming case would
+have made "the cleaning is identical" a claim rather than a fact.
+
+### Why the landing table is all TEXT
+
+`raw_transactions` declares its twenty-two source columns as `TEXT`, which
+looks like laziness and is the opposite. It is the same contract
+`spark_setup.read_csv` enforces with `inferSchema` off and `src/utils/io.py`
+with `dtype=object`: **the reader must not decide** what `""` or `"NA"` or
+`"5.727.580,00"` mean.
+
+A `NUMERIC` column here would reject an unparseable amount at the `INSERT` —
+before any stage could mark it, and therefore before the cleaning report could
+count it. Requirement 2 asks for unreadable values to be *counted*, not
+guessed and not refused, and a landing table that validates makes that
+impossible in the one place it matters most. Typing happens exactly once, on
+the way out, in `src/db/contract.py`.
+
+The one place the frame and the table deliberately disagree is the empty
+string. `read_csv` sets `nullValue=""`, so a blank field reaches the stages as
+null — and the `missing` stage counts nulls. A blank read back from the table
+as `""` would not be null, would not be counted, and the same transaction
+cleaned through the file and through the table would report differently. So
+`raw.read` applies `NULLIF(col, '')`. The table keeps the two apart, because a
+person querying it should see what actually arrived; the frame does not,
+because the batch path cannot either.
+
+### Why the id, and only the id, travels
+
+The Kafka message carries a row id and no transaction data. That is the same
+rule the completion event follows — Kafka carries the *event*, the rows go to
+Postgres — and it has a specific payoff here: the message cannot go stale.
+A payload holding the transaction would be a second copy of a row that the
+database also holds, and the two could disagree the moment anybody corrected
+one. An id can only be right or absent.
+
+It is a JSON object rather than a bare integer for three reasons, all of which
+are about the second year of the system's life rather than the first: a
+consumer holding `42` cannot tell what it is holding, there is nowhere to put
+a version, and a topic full of naked integers cannot be debugged with
+`kafka-console-consumer`.
+
+### The commit is the design
+
+Offsets are committed after Postgres has committed, never before, and
+`enable.auto.commit` is off precisely so that this is possible. Auto-commit
+commits on a timer whether or not the row was dealt with, so a consumer that
+dies mid-clean has already told Kafka it finished and the row is cleaned by
+nobody.
+
+Committing last inverts the failure: a crash redelivers a row rather than
+skipping one. That is only safe because redelivery is a no-op, which is
+`src/jobs.py`'s doing — the job id is derived from the ids rather than
+generated, so a second pass writes the same rows with the same values under
+the same identity. At-least-once delivery plus an idempotent write is the
+whole guarantee, and neither half is sufficient alone.
+
+### Why a failed row is marked and skipped
+
+Three options exist when a row will not clean: halt, retry, or record and move
+on. Halting lets one unparseable row stop the other thousand. Retrying is
+worse than it sounds — the same row through the same code fails the same way,
+so a retry loop is a consumer that has stopped consuming.
+
+So the row is marked `FAILED` with its reason in `last_error`, the offset is
+committed, and the consumer carries on. Nothing is lost: the row is still in
+`raw_transactions`, and re-emitting its id is how it is retried once the cause
+is fixed. `status` is a *record* and not a work queue, for the same reason —
+Kafka is the queue, and a consumer polling this column instead would be a
+second, competing source of truth about what is outstanding.
+
+A batch that fails is retried one row at a time. That is slow, and it only
+happens on a path that was already going wrong; what it buys is that the
+failure lands on the row that caused it instead of on the forty-nine that
+travelled with it.
+
+### Why the consumer runs on one thread
+
+`local[*]` is right when there is data to divide across cores. A batch of two
+rows has none, and every additional local thread is another Python worker
+process for Spark to start — which `spark_setup` already documents as slow
+enough on Windows to need the worker socket timeout raised to 120 seconds.
+
+Measured on the development machine, two rows through the eleven stages:
+
+| master | pass 1 | pass 2 | pass 3 |
+|---|---|---|---|
+| `local[*]` | 469.9s | 453.0s | 679.4s |
+| `local[1]` | 105.3s | 71.0s | — |
+
+Not warm-up — the third pass is as slow as the first. It is fixed per-job
+overhead, and on a batch this small the overhead *is* the run. So the consumer
+builds its session as `local[1]` with one shuffle partition. The batch path is
+untouched: `session()` takes a master because the right thread count is a
+property of the work and not of the project.
+
+### Why the stage log costs an action, and caches
+
+`report()` says what a run did once it is over, which is right for a batch job
+and useless for watching one row. The stage log is the other view — each stage
+announced as it finishes, with its own metrics evaluated at that point.
+
+Those metrics are real, which means each one is a Spark action, which means a
+counted run is one pass per stage rather than one pass. That is affordable on a
+two-row batch and ruinous on 265k, which is why `counts` is a switch and why
+the batch path leaves it off.
+
+It also means each measured frame must be cached. Measuring after stage *n*
+runs stages 1..n; measuring after *n+1* runs 1..n+1 **from the source again**,
+because nothing kept the intermediate. Uncached, two rows through eleven
+counted stages did not finish in ten minutes and had reached Spark job 54. The
+log caches each frame it measures and releases the previous one once the next
+has been computed, so peak memory is two stages' worth of one batch.
+
+### What is deliberately not done
+
+**The balance anchor.** The `balance` stage chains a running balance per
+account in sequence order. A single row has no earlier transaction to count
+from, so the stage states no figure and the column is null — which the schema
+permits and the log reports as `adjusted[NO_ANCHOR]`. Seeding the anchor from
+`cleaned_transactions` is the correct fix and `idx_cleaned_account_seq` exists
+for exactly that lookup. It is left undone rather than half-done: a balance
+computed from a partial chain would be a number nobody can defend, and a null
+is at least honest about what was not known.
+
+**A real emitter.** `scripts/dummy_producer.py` publishes because a person ran
+it. In a deployment the event would come from whatever writes the row — a
+trigger, an outbox poller, a CDC reader on the write-ahead log — and all three
+produce exactly the message this script produces. That is the point of the
+message being an id and a version rather than a payload shaped around this
+script: replacing the producer changes nothing downstream.
