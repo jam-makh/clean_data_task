@@ -89,6 +89,46 @@ class Database:
 
 
 @dataclass(frozen=True)
+class Consumer:
+    """
+    How the cleaning consumer reads its topic.
+
+    :param group_id: The consumer group. Kafka tracks committed offsets per
+        group, so this name is what decides whether a restarted consumer
+        resumes where it left off or starts again -- change it and the whole
+        topic is redelivered.
+    :param auto_offset_reset: Where a group with no committed offset starts.
+        ``earliest``, so a consumer started after a producer has already run
+        picks up what is waiting rather than ignoring it. ``latest`` would
+        make the first run of a fresh group silently skip every message
+        published before it started, which reads exactly like a broken
+        consumer.
+    :param poll_timeout: Seconds a poll waits for a message before returning
+        empty. Not a limit on anything: it is how often the loop gets to
+        notice it has been asked to stop.
+    :param batch_size: Most ids to gather into one Spark job. A job over one
+        row and a job over fifty cost nearly the same -- the fixed overhead is
+        scheduling, not data -- so a burst of ids is worth cleaning together.
+        One is the setting for watching a single transaction go through.
+    :param max_poll_interval: Seconds Kafka allows between polls before it
+        decides this consumer has died and gives its partitions to someone
+        else. The default is 300, and a Spark job that cleans a batch can
+        exceed that on a cold session -- at which point the broker revokes the
+        partitions, the commit fails, and the batch is redelivered to a
+        consumer that will take just as long. Raised well past anything a
+        batch should take, because the failure it prevents is a livelock and
+        the cost of the larger value is only that a genuinely hung consumer
+        takes longer to be noticed.
+    """
+
+    group_id: str = "cleaning-consumer"
+    auto_offset_reset: str = "earliest"
+    poll_timeout: float = 1.0
+    batch_size: int = 25
+    max_poll_interval: int = 1800
+
+
+@dataclass(frozen=True)
 class Kafka:
     """
     What the run announces, and where. Not the broker's address -- see the
@@ -118,6 +158,7 @@ class Kafka:
     :param delivery_timeout: Seconds to wait for the broker to acknowledge.
         Generous, because the alternative to waiting is reporting a run as
         announced when it was not.
+    :param consumer: How the cleaning consumer reads ``raw_topic``.
     """
 
     enabled: bool = True
@@ -126,6 +167,7 @@ class Kafka:
     partitions: int = 1
     replication_factor: int = 1
     delivery_timeout: int = 30
+    consumer: Consumer = field(default_factory=Consumer)
 
 
 @dataclass(frozen=True)
@@ -307,6 +349,62 @@ def _kafka(section, path: Path) -> Kafka:
         ),
         delivery_timeout=_positive_int(
             section, "delivery_timeout", 30, "kafka", path
+        ),
+        consumer=_consumer(section.get("consumer"), path),
+    )
+
+
+def _consumer(section, path: Path) -> Consumer:
+    """
+    :param section: The ``kafka.consumer`` mapping, or None when absent.
+    :returns: The consumer settings, defaulted.
+    :raises ConfigError: On a malformed entry.
+    """
+    if section is None:
+        return Consumer()
+    if not isinstance(section, dict):
+        raise ConfigError(
+            f"{path}: 'kafka.consumer' must be a mapping, got "
+            f"{type(section).__name__}"
+        )
+
+    group = section.get("group_id", Consumer.group_id)
+    if not isinstance(group, str) or not group.strip():
+        raise ConfigError(
+            f"{path}: kafka.consumer.group_id must be a non-empty string, got "
+            f"{group!r}. It is what decides whether a restarted consumer "
+            f"resumes or starts the topic again."
+        )
+
+    reset = section.get("auto_offset_reset", Consumer.auto_offset_reset)
+    if reset not in ("earliest", "latest"):
+        raise ConfigError(
+            f"{path}: kafka.consumer.auto_offset_reset must be 'earliest' or "
+            f"'latest', got {reset!r}"
+        )
+
+    timeout = section.get("poll_timeout", Consumer.poll_timeout)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ConfigError(
+            f"{path}: kafka.consumer.poll_timeout must be a number, got "
+            f"{timeout!r}"
+        )
+    if timeout <= 0:
+        raise ConfigError(
+            f"{path}: kafka.consumer.poll_timeout must be positive, got "
+            f"{timeout!r}. Zero would spin the loop at full speed."
+        )
+
+    return Consumer(
+        group_id=group,
+        auto_offset_reset=reset,
+        poll_timeout=float(timeout),
+        batch_size=_positive_int(
+            section, "batch_size", Consumer.batch_size, "kafka.consumer", path
+        ),
+        max_poll_interval=_positive_int(
+            section, "max_poll_interval", Consumer.max_poll_interval,
+            "kafka.consumer", path,
         ),
     )
 

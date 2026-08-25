@@ -73,6 +73,58 @@ class Broker:
         }
 
 
+@dataclass(frozen=True)
+class Subscription:
+    """
+    How the cleaning consumer reads, and the two guarantees that shape it.
+
+    Named for what it is rather than ``Consumer``, which is already the name
+    of the client class this configures -- one of them would end up aliased at
+    every import and the aliases would not agree.
+
+    :param servers: Bootstrap servers, comma separated.
+    :param topic: What to subscribe to -- the ingest topic.
+    :param group_id: The consumer group, and therefore where a restart
+        resumes.
+    :param auto_offset_reset: Where a group with no committed offset starts.
+    :param poll_timeout: Seconds a poll waits before returning empty.
+    :param batch_size: Most ids gathered into one Spark job.
+    :param max_poll_interval: Seconds allowed between polls before Kafka
+        assumes this consumer is dead.
+    """
+
+    servers: str = DEFAULT_SERVERS
+    topic: str = "transactions.raw.ingested.v1"
+    group_id: str = "cleaning-consumer"
+    auto_offset_reset: str = "earliest"
+    poll_timeout: float = 1.0
+    batch_size: int = 25
+    max_poll_interval: int = 1800
+
+    @property
+    def consumer_config(self) -> dict:
+        """
+        :returns: The client configuration, and one setting that is the whole
+            delivery guarantee.
+        """
+        return {
+            "bootstrap.servers": self.servers,
+            "group.id": self.group_id,
+            "auto.offset.reset": self.auto_offset_reset,
+            # OFF, and this is the design rather than a preference. With
+            # auto-commit the client commits on a timer, in the background,
+            # whether or not the message has been dealt with -- so a consumer
+            # that crashes mid-clean has already told Kafka it finished, and
+            # the row is never cleaned by anyone. Committing by hand after the
+            # Postgres commit makes the failure the other way round: a crash
+            # redelivers a row that may already be written, and the upsert
+            # makes that a no-op. At-least-once on purpose, because the write
+            # is idempotent and lost work is not recoverable.
+            "enable.auto.commit": False,
+            "max.poll.interval.ms": self.max_poll_interval * 1000,
+        }
+
+
 def load(env: dict[str, str] | None = None, config=None) -> Broker:
     """
     :param env: Overrides for testing; the real environment plus ``.env``
@@ -94,4 +146,35 @@ def load(env: dict[str, str] | None = None, config=None) -> Broker:
         partitions=config.partitions,
         replication_factor=config.replication_factor,
         delivery_timeout=config.delivery_timeout,
+    )
+
+
+def load_subscription(
+    env: dict[str, str] | None = None, config=None
+) -> Subscription:
+    """
+    :param env: Overrides for testing; the real environment plus ``.env``
+        when absent.
+    :param config: A ``runtime.Kafka`` section; loaded when absent.
+    :returns: The consumer settings, reading the same address the producer
+        does -- from the environment, so a machine cannot have the producer
+        and the consumer pointed at different brokers.
+    """
+    if env is None:
+        env = {**read_env_file(), **os.environ}
+    if config is None:
+        from src.config import runtime
+
+        config = runtime.load().kafka
+
+    return Subscription(
+        servers=env.get("KAFKA_BOOTSTRAP_SERVERS", DEFAULT_SERVERS),
+        # The ingest topic, not `config.topic`. Subscribing to the completion
+        # topic would hand this consumer the events it publishes itself.
+        topic=config.raw_topic,
+        group_id=config.consumer.group_id,
+        auto_offset_reset=config.consumer.auto_offset_reset,
+        poll_timeout=config.consumer.poll_timeout,
+        batch_size=config.consumer.batch_size,
+        max_poll_interval=config.consumer.max_poll_interval,
     )

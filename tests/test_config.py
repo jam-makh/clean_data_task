@@ -330,6 +330,92 @@ def test_a_bad_topic_name_is_rejected_by_name(key, bad):
         })
 
 
+def test_consumer_defaults_when_the_section_is_absent():
+    parsed = runtime_module.parse({"paths": {"source": "a.csv", "output": "b.xlsx"}})
+
+    assert parsed.kafka.consumer.group_id
+    assert parsed.kafka.consumer.auto_offset_reset == "earliest"
+    assert parsed.kafka.consumer.batch_size >= 1
+
+
+def test_the_shipped_poll_interval_allows_for_a_slow_spark_batch():
+    """
+    Kafka's own default is 300 seconds and a cold Spark batch has been
+    measured well past that on this machine. Exceeding it makes the broker
+    revoke the partitions mid-batch, fail the commit, and redeliver the work
+    to a consumer that will take just as long -- a livelock rather than a slow
+    run, and one that looks like a Kafka problem rather than a timeout.
+    """
+    assert runtime_module.load().kafka.consumer.max_poll_interval > 300
+
+
+@pytest.mark.parametrize("bad", ["", "   ", 5, None])
+def test_a_bad_consumer_group_is_rejected(bad):
+    with pytest.raises(ConfigError, match="group_id"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"consumer": {"group_id": bad}},
+        })
+
+
+@pytest.mark.parametrize("bad", ["newest", "beginning", "", 1, None])
+def test_an_unknown_offset_reset_is_rejected(bad):
+    """
+    The two Kafka accepts, and no others. A typo here does not fail loudly at
+    the broker -- the client rejects the config at construction with a message
+    about a property name, which is a long way from "you meant earliest".
+    """
+    with pytest.raises(ConfigError, match="auto_offset_reset"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"consumer": {"auto_offset_reset": bad}},
+        })
+
+
+@pytest.mark.parametrize("bad", [0, -1, "1", None, True])
+def test_a_bad_poll_timeout_is_rejected(bad):
+    """
+    Zero is the interesting one: it is a number, it is not negative, and it
+    would spin the poll loop at full speed doing nothing.
+    """
+    with pytest.raises(ConfigError, match="poll_timeout"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"consumer": {"poll_timeout": bad}},
+        })
+
+
+def test_a_fractional_poll_timeout_is_allowed():
+    """
+    Unlike every other number in this section, this one is seconds of waiting
+    and half a second is a reasonable thing to ask for.
+    """
+    parsed = runtime_module.parse({
+        "paths": {"source": "a.csv", "output": "b.xlsx"},
+        "kafka": {"consumer": {"poll_timeout": 0.5}},
+    })
+
+    assert parsed.kafka.consumer.poll_timeout == 0.5
+
+
+@pytest.mark.parametrize("key", ["batch_size", "max_poll_interval"])
+@pytest.mark.parametrize("bad", [0, -1, "1", 1.5, True])
+def test_a_bad_consumer_number_is_rejected(key, bad):
+    with pytest.raises(ConfigError, match=key):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"consumer": {key: bad}},
+        })
+
+
+def test_a_consumer_section_that_is_not_a_mapping_is_rejected():
+    with pytest.raises(ConfigError, match="kafka.consumer"):
+        runtime_module.parse({
+            "paths": {"source": "a.csv", "output": "b.xlsx"},
+            "kafka": {"consumer": "cleaning-consumer"},
+        })
+
+
 @pytest.mark.parametrize("key", ["partitions", "replication_factor", "delivery_timeout"])
 @pytest.mark.parametrize("bad", [0, -1, "1", 1.5, True])
 def test_a_bad_kafka_number_is_rejected(key, bad):

@@ -1,0 +1,60 @@
+.......F                                                                 [100%]
+================================== FAILURES ===================================
+_____________ test_the_consumer_reads_what_the_producer_published _____________
+
+database = Database(host='localhost', port=5433, database='training', user='postgres', password='piz_679')
+broker = Broker(servers='localhost:9092', topic='pipeline.run.completed.v1', raw_topic='transactions.raw.ingested.v1', partitions=1, replication_factor=1, delivery_timeout=30)
+session = <pyspark.sql.session.SparkSession object at 0x000001BB8F92F380>
+assigned = <cimpl.Consumer object at 0x000001BB8FB6CFE0>
+
+    def test_the_consumer_reads_what_the_producer_published(
+        database, broker, session, assigned
+    ):
+        """
+        The one thing a fake client cannot prove: that the topic the producer
+        writes to is the topic the consumer reads from, and that a real Kafka
+        message decodes into the id that went in.
+    
+        No cleaning here -- the id names a row that does not exist, so the flow
+        stops at "read the message, look it up, report it missing", which is
+        exactly the seam under test and costs no Spark job at all.
+        """
+        absent = 900_000 + uuid.uuid4().int % 90_000
+    
+        dummy_producer.emit(absent, broker)
+    
+        messages = consumer_module.poll_batch(
+            assigned, kafka_settings.load_subscription(), batch_size=10
+        )
+        ids, errors = consumer_module.decode_all(messages)
+    
+        assert errors == [], f"a real message failed to decode: {errors}"
+>       assert absent in ids, (
+            f"published {absent} to {broker.raw_topic} and read back {ids}"
+        )
+E       AssertionError: published 962010 to transactions.raw.ingested.v1 and read back [57]
+E       assert 962010 in [57]
+
+tests\test_streaming.py:416: AssertionError
+============================== warnings summary ===============================
+tests/test_streaming.py::test_the_row_reaches_the_cleaned_table
+  C:\Users\MY-PC\cleaning_task\.venv\Lib\site-packages\pyspark\testing\utils.py:127: FutureWarning: PySpark does not yet fully support pandas >= 3.0.0. Some features may not work correctly. It is recommended to use pandas < 3.0.0 for now.
+    require_minimum_pandas_version()
+
+tests/test_streaming.py::test_the_row_reaches_the_cleaned_table
+tests/test_streaming.py::test_cleaning_the_same_row_again_changes_nothing
+  C:\Users\MY-PC\cleaning_task\.venv\Lib\site-packages\pyspark\sql\pandas\functions.py:777: FutureWarning: PySpark does not yet fully support pandas >= 3.0.0. Some features may not work correctly. It is recommended to use pandas < 3.0.0 for now.
+    require_minimum_pandas_version()
+
+tests/test_streaming.py::test_the_row_reaches_the_cleaned_table
+tests/test_streaming.py::test_cleaning_the_same_row_again_changes_nothing
+  C:\Users\MY-PC\cleaning_task\.venv\Lib\site-packages\pyspark\sql\pandas\typehints.py:60: FutureWarning: PySpark does not yet fully support pandas >= 3.0.0. Some features may not work correctly. It is recommended to use pandas < 3.0.0 for now.
+    require_minimum_pandas_version()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_streaming.py::test_the_consumer_reads_what_the_producer_published
+1 failed, 7 passed, 5 warnings in 205.32s (0:03:25)
+SUCCESS: The process with PID 26640 (child process of PID 48024) has been terminated.
+SUCCESS: The process with PID 48024 (child process of PID 21132) has been terminated.
+SUCCESS: The process with PID 21132 (child process of PID 21772) has been terminated.

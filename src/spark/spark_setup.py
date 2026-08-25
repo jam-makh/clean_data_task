@@ -189,7 +189,7 @@ def settings(**overrides) -> dict[str, str]:
     return config
 
 
-def session(app_name: str = APP_NAME, **overrides):
+def session(app_name: str = APP_NAME, master: str | None = None, **overrides):
     """
     Builds -- or returns -- the session every entry point shares.
 
@@ -200,6 +200,12 @@ def session(app_name: str = APP_NAME, **overrides):
     first.
 
     :param app_name: Name Spark's own logs report the run under.
+    :param master: The master URL; ``LOCAL_MASTER`` when absent. A parameter
+        because the right thread count is a property of the *work* and not of
+        the project: a batch run over 265k rows wants every core, and the
+        consumer's two-row batches want one -- every additional local thread
+        is another Python worker process to start, and on Windows that costs
+        more than cleaning two rows does. See ``consumer.py``.
     :param overrides: ``spark.*`` settings replacing the module defaults.
     :returns: The configured ``SparkSession``.
     """
@@ -211,7 +217,8 @@ def session(app_name: str = APP_NAME, **overrides):
     config = settings(**overrides)
     _pin_driver_memory(config["spark.driver.memory"])
 
-    builder = SparkSession.builder.master(LOCAL_MASTER).appName(app_name)
+    master = master if master is not None else LOCAL_MASTER
+    builder = SparkSession.builder.master(master).appName(app_name)
     for key, value in config.items():
         builder = builder.config(key, value)
 

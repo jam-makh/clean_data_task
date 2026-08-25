@@ -303,3 +303,29 @@ def _as_ids(ids) -> list[int]:
         except (TypeError, ValueError):
             raise ValueError(f"{value!r} is not a row id") from None
     return sorted(out)
+
+
+def existing(database: Database, ids) -> list[int]:
+    """
+    Which of these ids are actually in the table.
+
+    One small query, and it earns its round trip: the alternative is
+    discovering that a message named a row nobody has after eleven cleaning
+    stages have run over an empty frame. A consumer that is told about a
+    deleted row should say so in a second, not in a minute.
+
+    :param database: Where to look.
+    :param ids: Ids to check.
+    :returns: Those that exist, ascending.
+    """
+    wanted = _as_ids(ids)
+    if not wanted:
+        return []
+
+    with connect(database) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {ID} FROM {TABLE} WHERE {ID} = ANY(%s) ORDER BY {ID}",
+                (wanted,),
+            )
+            return [row[0] for row in cursor.fetchall()]

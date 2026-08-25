@@ -173,3 +173,37 @@ kafka:
   # reported as failed. Generous on purpose: the alternative to waiting is
   # recording a run as announced when nobody heard it.
   delivery_timeout: 30
+
+  # How consumer.py reads raw_topic.
+  consumer:
+    # Kafka tracks committed offsets per group, so this name is what decides
+    # whether a restarted consumer resumes where it left off or reads the
+    # whole topic again. Changing it is the supported way to replay
+    # everything; deleting the group is the other.
+    group_id: cleaning-consumer
+
+    # Where a group with no committed offset starts. `earliest`, so a
+    # consumer started after the producer has already published picks up what
+    # is waiting. `latest` would make the first run of a fresh group skip
+    # every message published before it started -- which is indistinguishable,
+    # from the outside, from a consumer that does not work.
+    auto_offset_reset: earliest
+
+    # Seconds a poll waits before returning empty. Not a limit on anything:
+    # it is how often the loop gets to notice it has been asked to stop.
+    poll_timeout: 1.0
+
+    # Most ids gathered into one Spark job. A job over one row and a job over
+    # fifty cost nearly the same -- the fixed cost is scheduling, not data --
+    # so a burst is worth cleaning together. `--batch-size 1` on the command
+    # line is the setting for watching a single transaction go through.
+    batch_size: 25
+
+    # Seconds Kafka allows between polls before deciding this consumer has
+    # died. The default is 300 and a Spark batch can exceed it on a cold
+    # session -- the broker then revokes the partitions, the commit fails, and
+    # the batch is redelivered to a consumer that takes just as long, which is
+    # a livelock rather than a slow run. Raised well past anything a batch
+    # should take; the only cost of the larger value is that a genuinely hung
+    # consumer takes longer to be noticed.
+    max_poll_interval: 1800
