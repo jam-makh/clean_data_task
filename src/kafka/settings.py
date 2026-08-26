@@ -17,6 +17,7 @@ import os
 from dataclasses import dataclass
 
 from src.db.settings import read_env_file
+from src.kafka import audit_trail as audit_trail_module
 
 # Matching docker-compose.yml, which publishes 9092 and advertises the same
 # number. The two have to agree: a broker that accepts a connection on one port
@@ -91,6 +92,14 @@ class Subscription:
     :param batch_size: Most ids gathered into one Spark job.
     :param max_poll_interval: Seconds allowed between polls before Kafka
         assumes this consumer is dead.
+    :param audit_trail: Where messages that will not decode are appended.
+        Held here beside the rest of how this consumer reads, because it is
+        part of what reading means for this consumer -- what it does with the
+        messages it has to refuse.
+    :param renew_every: Batches between Spark session rebuilds; 0 for never.
+        Here for the same reason ``audit_trail`` is: it is part of how this
+        consumer reads, in the sense that reading for a long time is what
+        makes it necessary.
     """
 
     servers: str = DEFAULT_SERVERS
@@ -100,6 +109,8 @@ class Subscription:
     poll_timeout: float = 1.0
     batch_size: int = 25
     max_poll_interval: int = 1800
+    audit_trail: str = audit_trail_module.DEFAULT_PATH
+    renew_every: int = 50
 
     @property
     def consumer_config(self) -> dict:
@@ -177,4 +188,6 @@ def load_subscription(
         poll_timeout=config.consumer.poll_timeout,
         batch_size=config.consumer.batch_size,
         max_poll_interval=config.consumer.max_poll_interval,
+        audit_trail=config.consumer.audit_trail,
+        renew_every=config.consumer.renew_every,
     )

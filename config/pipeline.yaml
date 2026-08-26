@@ -207,3 +207,55 @@ kafka:
     # should take; the only cost of the larger value is that a genuinely hung
     # consumer takes longer to be noticed.
     max_poll_interval: 1800
+
+    # Where a message that will NOT decode is kept, as JSON Lines.
+    #
+    # This is the one failure raw_transactions.status cannot record. A row
+    # that will not clean is marked FAILED with its reason and retried by id;
+    # a message that will not decode has no id -- that is precisely what is
+    # wrong with it -- so there is no row to mark. Without this file such a
+    # message is printed once and its offset committed, and a restart erases
+    # the only evidence it arrived.
+    #
+    # Under data/, which .gitignore excludes wholesale: these are arbitrary
+    # bytes off a topic and may carry transaction data, so committing them is
+    # not an option. In its own directory rather than data/output/, which
+    # means "results of a successful clean" and should not have a quarantine
+    # file sitting among the deliverables.
+    #
+    # Relative to wherever the consumer runs, which is the caveat worth
+    # stating: the file is local to that process. It does not survive a
+    # container rebuild unless this path is on a mounted volume, and two
+    # replicas would keep two files nobody joins. Fine for one consumer;
+    # not fine as a surprise.
+    audit_trail: data/audit_trail/undecodable.jsonl
+
+    # Batches to clean before the Spark session is stopped and rebuilt.
+    #
+    # A batch run is a process: it starts a driver, cleans a file, and exits,
+    # and everything the driver accumulated goes with it. A consumer never
+    # exits, and that difference is not a detail -- the driver keeps state per
+    # batch that nothing inside a batch can release. Cached blocks and
+    # broadcast relations stay reachable until the plans referencing them are
+    # collected; the status listeners hold a bounded but non-zero history;
+    # Python worker processes are pooled and reused. Each is small. None is
+    # zero, and the sum over a few hundred batches is a driver whose heap is
+    # mostly the residue of work that finished an hour ago -- which is exactly
+    # how this consumer died: OutOfMemoryError while cleaning a single row,
+    # having reached Spark stage 1777 without restarting.
+    #
+    # Recycling is the only fix that BOUNDS this rather than slowing it down.
+    # `spark_setup` caps what the listeners retain and the consumer session
+    # turns off broadcast joins, and both are worth having; neither can make a
+    # driver's footprint stop being a function of how long it has been up. A
+    # rebuild resets that function to zero.
+    #
+    # 50 balances the two costs directly. Rebuilding costs a few seconds of
+    # session start, paid once per 50 batches and not per message; leaving it
+    # too long is what the paragraph above describes. Raise it if the restarts
+    # are visible in the log and the driver is comfortable; lower it if a
+    # long-running consumer still grows.
+    #
+    # 0 turns it off, which is right for `--once` and for a demo short enough
+    # that the driver cannot get old.
+    renew_every: 50

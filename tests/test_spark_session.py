@@ -93,3 +93,68 @@ def test_second_call_returns_the_same_session(spark):
     one that cannot exist.
     """
     assert session_module.session("something-else") is spark
+
+
+def test_settings_bound_what_a_never_ending_session_accumulates():
+    """
+    The four retention keys are capped, and capped well below Spark's 1000.
+
+    Asserted because nothing in this project ever reads Spark's own history
+    back, so nothing else would notice if a default crept in -- until a
+    consumer that had been up for an hour died of a heap full of the recorded
+    plans of jobs that finished long ago. That failure is expensive to
+    diagnose and this test is free.
+    """
+    config = session_module.settings()
+
+    for key in (
+        "spark.ui.retainedJobs",
+        "spark.ui.retainedStages",
+        "spark.ui.retainedTasks",
+        "spark.sql.ui.retainedExecutions",
+    ):
+        assert int(config[key]) < 1000, f"{key} is back at Spark's default"
+
+
+class _Boom(Exception):
+    """Stands in for a Py4JJavaError, which needs a JVM to construct."""
+
+
+def test_a_heap_error_is_fatal_however_deeply_it_is_wrapped():
+    """
+    ``is_fatal`` reads the cause chain, not just the exception in hand.
+
+    The case that matters is the wrapped one: Spark reports an OOM as a job
+    failure whose *message* names the OutOfMemoryError, and a check that only
+    looked at the outermost type would call that an ordinary bad row and let
+    the consumer carry on against a dead driver.
+    """
+    inner = _Boom("java.lang.OutOfMemoryError: Java heap space")
+    outer = _Boom("Job aborted due to stage failure")
+    outer.__cause__ = inner
+
+    assert session_module.is_fatal(inner)
+    assert session_module.is_fatal(outer)
+
+
+def test_an_ordinary_failure_is_not_fatal():
+    """
+    The guard has to be narrow, or it converts every bad row into a stopped
+    consumer -- which is the failure mode it exists to prevent, inverted.
+    """
+    assert not session_module.is_fatal(_Boom("no such column: TXN_SEQ"))
+    assert not session_module.is_fatal(ValueError("no rows with id in [7]"))
+
+
+def test_a_cycle_in_the_cause_chain_does_not_hang():
+    """
+    A self-referential ``__context__`` is rare and reachable -- exceptions
+    raised while handling each other chain both ways -- and a walk that did
+    not remember where it had been would spin forever inside a log line.
+    """
+    first = _Boom("one")
+    second = _Boom("two")
+    first.__cause__ = second
+    second.__cause__ = first
+
+    assert not session_module.is_fatal(first)

@@ -328,3 +328,113 @@ def test_a_measurement_failure_does_not_fail_the_run(spark, monkeypatch):
     assert any("metrics unavailable" in line for line in written)
     assert any("duplicates" in line for line in written)
     del pipeline
+
+
+# ---------------------------------------------------------------------------
+# The audit trail
+# ---------------------------------------------------------------------------
+
+
+def test_the_audit_names_every_step_and_metric(lines):
+    """
+    The record is the whole report, not a selection from it. Requirement:
+    what was coerced, dropped or flagged, and why -- so every entry the
+    cleaners wrote has to appear, attributed to the step that wrote it.
+    """
+    from src.utils.report import CleaningReport
+
+    written, log = lines
+    report = CleaningReport()
+    report.record("timestamps", "TXN_TS_STATUS[COERCED]", 3)
+    report.record("duplicates", "exact_duplicates_dropped", 1)
+
+    log.audit(report)
+
+    body = "\n".join(written)
+    for fragment in ("timestamps", "TXN_TS_STATUS[COERCED]", "3",
+                     "duplicates", "exact_duplicates_dropped", "1"):
+        assert fragment in body, f"{fragment!r} missing from the audit trail"
+
+
+def test_the_audit_keeps_the_zeroes(lines):
+    """
+    Unlike a stage line, which drops them so the one number that is not zero
+    is visible. A record drops nothing: "this check ran and found nothing" and
+    "this check did not run" are different findings, and only one is good
+    news.
+    """
+    from src.utils.report import CleaningReport
+
+    written, log = lines
+    report = CleaningReport()
+    report.record("consistency", "balance_disagreements", 0)
+
+    log.audit(report)
+
+    assert any("balance_disagreements = 0" in line for line in written)
+
+
+def test_the_audit_says_so_when_there_is_nothing(lines):
+    """
+    An empty report prints a line saying it is empty rather than printing
+    nothing at all, which would be indistinguishable from a consumer that
+    forgot to call this.
+    """
+    from src.utils.report import CleaningReport
+
+    written, log = lines
+    log.audit(CleaningReport())
+
+    assert written and "nothing recorded" in written[-1]
+
+
+def test_the_audit_does_not_need_counts(lines):
+    """
+    The point of the split: ``lines`` builds the log with ``counts=False``,
+    which is what a running consumer uses, and the audit still comes out. If
+    this ever fails, turning the narration off has started costing
+    auditability and the default has to change back.
+    """
+    from src.utils.report import CleaningReport
+
+    written, log = lines
+    assert log.counts is False
+
+    report = CleaningReport()
+    report.record("amounts", "AMOUNT_STATUS[COERCED]", 2)
+    log.audit(report)
+
+    assert any("AMOUNT_STATUS[COERCED] = 2" in line for line in written)
+
+
+@pytest.mark.spark
+def test_a_dead_driver_is_not_reported_as_a_missing_metric(spark, monkeypatch):
+    """
+    The counterpart of ``test_a_measurement_failure_does_not_fail_the_run``,
+    and the line between them is the whole point. A metric that could not be
+    computed is logged and stepped over. A heap error is not a metric problem:
+    the run is over, every stage after it would print the same line, and
+    swallowing it is how a consumer goes on marking good rows FAILED against a
+    driver that cannot execute anything. It is logged AND re-raised.
+    """
+    from src.spark import audit
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("java.lang.OutOfMemoryError: Java heap space")
+
+    monkeypatch.setattr(audit, "collect", explode)
+
+    frame = spark.createDataFrame([("t1",)], "TXN_ID string")
+    written = []
+    log = stagelog.StageLog(write=written.append, counts=True, policy=object())
+
+    # A step with no entry in the metrics registry, so the only thing between
+    # here and the collect is the row count -- otherwise the stage's own
+    # metrics function raises first, against the placeholder policy, and the
+    # test proves nothing about the error it meant to be about.
+    with pytest.raises(RuntimeError, match="OutOfMemoryError"):
+        log.finished("nosuchstage", frame)
+
+    assert any("metrics unavailable" in line for line in written), (
+        "it must still say what it saw before it re-raises"
+    )

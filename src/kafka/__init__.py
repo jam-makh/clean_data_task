@@ -5,6 +5,7 @@ The Kafka side: announcing that a load finished, and what it produced.
     events          what a completion event says, and its version
     ingest_events   what "a row landed in raw_transactions" says
     producer        publishing either, and creating a topic when it is absent
+    audit_trail     where a message that will not decode is kept instead
 
 Two topics, two directions. ``events`` travels *outward* from a finished run
 and says what it did; ``ingest_events`` travels *inward*, naming a row that

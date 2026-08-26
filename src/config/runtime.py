@@ -119,6 +119,19 @@ class Consumer:
         batch should take, because the failure it prevents is a livelock and
         the cost of the larger value is only that a genuinely hung consumer
         takes longer to be noticed.
+    :param audit_trail: Where messages that will not decode are appended, as
+        JSON Lines. Configured rather than hardcoded because the useful value
+        in a container is a mounted volume and not a repo-relative path -- a
+        quarantine file that dies with the container quarantines nothing. See
+        ``src/kafka/audit_trail.py`` for why this exists at all: a message
+        that fails to decode has no id, so the ``status`` column on
+        ``raw_transactions`` structurally cannot record it.
+    :param renew_every: Batches to clean before the Spark session is stopped
+        and rebuilt. A consumer is the one part of this pipeline that keeps a
+        driver alive indefinitely, and a driver accumulates per-batch state
+        that no amount of care inside a batch releases -- see
+        ``src/kafka/consumer.py`` on what and why. 0 turns recycling off, for
+        a run short enough that it cannot matter.
     """
 
     group_id: str = "cleaning-consumer"
@@ -126,6 +139,8 @@ class Consumer:
     poll_timeout: float = 1.0
     batch_size: int = 25
     max_poll_interval: int = 1800
+    audit_trail: str = "data/audit_trail/undecodable.jsonl"
+    renew_every: int = 50
 
 
 @dataclass(frozen=True)
@@ -395,9 +410,18 @@ def _consumer(section, path: Path) -> Consumer:
             f"{timeout!r}. Zero would spin the loop at full speed."
         )
 
+    trail = section.get("audit_trail", Consumer.audit_trail)
+    if not isinstance(trail, str) or not trail.strip():
+        raise ConfigError(
+            f"{path}: kafka.consumer.audit_trail must be a non-empty path, "
+            f"got {trail!r}. It is where a message that will not decode is "
+            f"kept, and there is nowhere else that record can go."
+        )
+
     return Consumer(
         group_id=group,
         auto_offset_reset=reset,
+        audit_trail=trail,
         poll_timeout=float(timeout),
         batch_size=_positive_int(
             section, "batch_size", Consumer.batch_size, "kafka.consumer", path

@@ -91,8 +91,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--quiet", action="store_true",
         help=(
-            "Do not count or print each stage. Faster -- counting costs a "
-            "Spark action per stage -- and much less to read."
+            "Say nothing about each batch, audit trail included. For a "
+            "consumer whose output is going somewhere nobody reads."
+        ),
+    )
+    parser.add_argument(
+        "--trace", action="store_true",
+        help=(
+            "Print each stage's metrics as it runs, on top of the audit "
+            "trail every batch prints anyway. Costs a Spark action per stage "
+            "and keeps a cached frame per stage on the driver, so it is for "
+            "watching one batch closely and not for a consumer left running."
         ),
     )
     parser.add_argument(
@@ -165,6 +174,13 @@ def main(argv: list[str] | None = None) -> int:
             write=not args.dry_run,
             emit=args.emit,
             verbose=not args.quiet,
+            counts=args.trace,
+            # How to build a replacement, not a replacement. The loop decides
+            # when -- it is the only thing that knows how many batches have
+            # been through this driver -- and this is the process saying what
+            # a session of its own looks like, which is the one part of it the
+            # loop cannot work out for itself.
+            renew=None if args.once else lambda: _session(args.workers),
             should_stop=lambda: stopping["now"],
         )
     except KeyboardInterrupt:
@@ -204,6 +220,23 @@ def _session(workers: str):
     ``showConsoleProgress`` off. The progress bar rewrites its line
     continuously, which turns the stage log into confetti.
 
+    ``autoBroadcastJoinThreshold`` of -1, which is the fourth and the only one
+    that is about the session's *lifetime* rather than the batch's size. Every
+    lookup join in the profile -- macro, geo, mcc -- is small enough for Spark
+    to broadcast, and it is right to broadcast it when 265k rows are on the
+    other side of the join. Here there is one row on the other side, so the
+    broadcast saves a shuffle of nothing and costs a fresh broadcast variable
+    per message, held on the driver until the plan that referenced it is
+    collected. The run this was written against reached broadcast_673 in one
+    session and died with "Not enough memory to build and broadcast the
+    table" -- while joining a single row. A sort-merge join over one row is
+    cheaper than the broadcast it replaces.
+
+    Not a module default in ``spark_setup``, because the batch run wants the
+    opposite: 265k rows against a lookup table is the case broadcast joins
+    exist for. The setting is a property of the batch size, and the batch size
+    is what makes the consumer different.
+
     :param workers: The N in local[N], as text, so ``*`` is expressible.
     :returns: The session.
     """
@@ -215,6 +248,7 @@ def _session(workers: str):
         **{
             "spark.sql.shuffle.partitions": "1",
             "spark.ui.showConsoleProgress": "false",
+            "spark.sql.autoBroadcastJoinThreshold": "-1",
         },
     )
 

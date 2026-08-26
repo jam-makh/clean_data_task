@@ -36,18 +36,26 @@ forces one action per stage, and an eleven-stage run over 265k rows becomes
 eleven passes over the data instead of one. That is not a log, it is a
 performance bug with a nice format.
 
-So ``counts`` is a switch and the default depends on who is asking:
+So ``counts`` is a switch, and it is off unless someone asked for it:
 
-* the **consumer** runs it on, because a batch is one row or a handful, the
-  actions are milliseconds, and being able to see the cleaning happen is the
-  entire point of watching;
 * the **batch run** leaves it off, because 265k rows through eleven counted
-  stages costs minutes to say things ``report()`` says at the end for free.
+  stages costs minutes to say things ``report()`` says at the end for free;
+* the **consumer** leaves it off too, which it did not always. A batch of one
+  row makes each action cheap and the total is still eleven actions and eleven
+  cached frames per message, on a driver that never restarts -- see
+  ``spark_setup.RETAINED_JOBS`` for where that ends up. ``consumer.py
+  --trace`` turns it on for a batch someone is watching.
 
 With ``counts`` off the stages are still announced, just without numbers and
 without timings -- because a timing with no action in it measures how long
 Spark took to *plan* the step, which is a real number that means nothing and
 would be read as though it meant something.
+
+Turning it off costs no auditability, which is the only reason it can be off.
+``audit()`` writes the run's ``CleaningReport`` into the same log at the end
+of every batch, unconditionally: what each step coerced, dropped or flagged,
+over the finished frame, in two actions rather than eleven. The stage lines
+are the narration and were never the record.
 
 What the numbers are, and are not
 ---------------------------------
@@ -63,6 +71,7 @@ above it.
 
 import time
 
+from src.spark.spark_setup import is_fatal
 from src.utils.report import CleaningReport
 
 # Which layer each stage belongs to. The grouping is editorial -- Spark has no
@@ -213,6 +222,45 @@ class StageLog:
         # batch per message until the session ran out of room.
         self._release()
 
+    def audit(self, report: CleaningReport) -> None:
+        """
+        Writes the run's own audit trail into the log.
+
+        :param report: The ``CleaningReport`` ``pipeline.report`` produced --
+            what was coerced, dropped or flagged, and by which step.
+
+        Separate from the per-stage lines above, and not an alternative to
+        them. Those are narration: this stage's metrics, evaluated at this
+        point in the run, printed so a watching operator can see the work
+        happening. This is the record: every step's metrics over the finished
+        frame, which is the same report the batch run writes as a sheet and
+        the same one ``RunResult.report`` carries to the completion event.
+
+        It is written unconditionally, because ``counts`` is a switch on the
+        *narration* and must not be a switch on the *audit*. The two costs are
+        not comparable -- the narration is one Spark action per stage, this is
+        two for the whole run over a frame the runner has already cached -- so
+        there is no configuration in which turning the audit off is the saving
+        anyone wanted. A consumer that cleaned a row and said nothing about
+        what it changed would be the silent cleaning this pipeline exists to
+        not do.
+
+        Zero-valued metrics are kept here, unlike in the stage lines. A stage
+        line drops them because eleven ``= 0``s would bury the one number that
+        is not; a record drops nothing, because "this check ran and found
+        nothing" and "this check did not run" are different findings and only
+        one of them is good news.
+        """
+        if not report.entries:
+            self.note("(audit: nothing recorded)")
+            return
+        self.note("audit:")
+        width = max(len(step) for step, _, _ in report.entries)
+        for step, metric, value in report.entries:
+            self.note(_truncate(
+                f"  {step:<{width}}  {metric} = {value}", METRIC_WIDTH
+            ))
+
     def _release(self, keep_last: bool = False) -> None:
         """
         Drops held frames from Spark's cache.
@@ -266,6 +314,15 @@ class StageLog:
         except Exception as exc:  # noqa: BLE001 - logging must not fail a run
             self.write(self._line(name, name, None, seconds))
             self.note(f"(metrics unavailable: {type(exc).__name__}: {exc})")
+            # Swallowed, but not indiscriminately. "Logging must not fail a
+            # run" is the rule for a metric that could not be computed; it is
+            # the wrong rule for a driver that has run out of heap, where the
+            # run is already over and every stage after this one will print
+            # the same line for the same reason. Reporting that as a missing
+            # metric is how a dead session goes on consuming messages and
+            # marking good rows FAILED -- see spark_setup.is_fatal.
+            if is_fatal(exc):
+                raise
             return
 
         # Measured after the aggregate, which is the action: the time before

@@ -266,11 +266,19 @@ def pending_ids(database: Database, limit: int = 100) -> list[int]:
     """
     :param database: Where to look.
     :param limit: Most ids to return.
-    :returns: Ids the consumer has not reported on, oldest first. For the
-        dummy producer's "emit whatever is outstanding" mode, and for a person
-        asking what got missed while the consumer was down. NOT how the
-        consumer finds its work -- Kafka is what tells it that; see the note
-        on the status column in sql/raw_schema.sql.
+    :returns: Ids still at ``status = 'PENDING'``, oldest first -- rows that
+        were never attempted. For the dummy producer's "emit whatever is
+        outstanding" mode, and for a person asking what got missed while the
+        consumer was down.
+
+        FAILED rows are excluded on purpose. They *were* reported on, and the
+        distinction between "never tried" and "tried and broke" is the reason
+        the status column has three values rather than two; folding them here
+        would re-emit every known-broken row on each recovery run. Retrying a
+        fixed failure is a per-id decision, made against ``last_error``.
+
+        NOT how the consumer finds its work -- Kafka is what tells it that;
+        see the note on the status column in sql/raw_schema.sql.
     """
     with connect(database) as connection:
         with connection.cursor() as cursor:

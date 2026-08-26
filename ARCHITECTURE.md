@@ -1288,6 +1288,55 @@ happens on a path that was already going wrong; what it buys is that the
 failure lands on the row that caused it instead of on the forty-nine that
 travelled with it.
 
+### Why a message that will not decode goes to a file
+
+The section above works because a failed row *has an id*. `FAILED` is written
+against a primary key, `last_error` explains it, and `--ids 42` retries it.
+Every part of that recovery hangs off the id.
+
+A message that will not decode has none. That is what is wrong with it: the
+bytes are not JSON, or are JSON of the wrong shape, or carry an `id` that is
+not a whole number — so there is no row in `raw_transactions` to mark and
+nothing to re-emit. The status column cannot express this failure, not as a
+matter of preference but of structure, and the third value it would need
+(`UNDECODABLE`, belonging to no row) would be a column describing something
+that is not a row.
+
+So it goes to `data/audit_trail/undecodable.jsonl`, configured at
+`kafka.consumer.audit_trail`. Before this it was printed and stepped over and
+the offset committed, which meant the sole evidence that a message ever
+arrived was a line on stdout that a restart erased.
+
+The record holds the bytes (base64 — a message that failed to decode is by
+definition not guaranteed to be UTF-8), the topic, partition and offset, and
+the error. The coordinates are what make the file a pointer rather than only a
+copy: the original can be re-read from the log while it is still within
+retention.
+
+JSON Lines rather than a JSON array, because an array must be read, parsed and
+rewritten whole on every bad message — slower, and it turns a crash mid-write
+into a corrupted file instead of a torn last line.
+
+Two properties are deliberate and both are constraints rather than features.
+The write cannot raise: a full disk must not turn one malformed message into a
+stopped consumer, which would be strictly worse than the skipping it replaced,
+so `record` returns False and the loop says `NOWHERE` on the line it was
+already printing. And it happens **before** the commit, for the same reason
+the Postgres write does — the offset is the promise the message was dealt
+with, so quarantining after it would let a crash in between lose the only
+copy. Erring the other way appends a duplicate record, which the offset in it
+makes obvious; the file has no upsert to make a redelivery a no-op the way
+Postgres does, and a duplicate line is the cheaper failure.
+
+What it is not is durable in the way Postgres is. The file is local to the
+process that wrote it: it does not survive a container rebuild unless the
+configured path is on a mounted volume, and two consumer replicas would keep
+two files nobody joins. Acceptable for a single-consumer pipeline, and the
+reason the path is configuration rather than a constant. A dead-letter *topic*
+is the textbook alternative and was not built, because it would mean another
+topic to create and something to consume it, added to demonstrate a pattern
+rather than to solve a problem this pipeline has.
+
 ### Why the consumer runs on one thread
 
 `local[*]` is right when there is data to divide across cores. A batch of two
@@ -1325,6 +1374,56 @@ because nothing kept the intermediate. Uncached, two rows through eleven
 counted stages did not finish in ten minutes and had reached Spark job 54. The
 log caches each frame it measures and releases the previous one once the next
 has been computed, so peak memory is two stages' worth of one batch.
+
+### Why the consumer stops its own Spark session every fifty batches
+
+Every other Spark decision in this project was made against the question "what
+does this cost on 265k rows". A batch run answers it once and exits, taking
+the driver with it. The consumer asks a different question — what does this
+cost after the four hundredth batch — and nothing had been designed against
+it.
+
+It runs out of memory. Not from a leak in this code: cached blocks and
+broadcast relations stay reachable until the plans referencing them are
+collected, the status listeners keep a history whose entries are query plans,
+and the Python worker pool holds processes. Every one of those is small,
+bounded, and defensible on its own; the sum over hundreds of batches is a
+driver whose heap is mostly the record of work that finished an hour ago.
+
+Observed rather than predicted. One consumer session reached Spark stage 1777
+with 673 live broadcasts, spent 872 seconds on a batch of **one row**, and
+then died — first "not enough memory to build and broadcast the table" while
+joining a single row against a lookup table, then `OutOfMemoryError` on every
+action, then six more batches "failing" in five seconds each without doing any
+work, marking six perfectly good rows FAILED on the way past.
+
+Three changes, and only one of them is a fix:
+
+| change | what it does |
+|---|---|
+| `spark.ui.retained*` and `spark.sql.ui.retainedExecutions` capped at 20 | slows the growth |
+| `autoBroadcastJoinThreshold = -1` on the consumer session | slows the growth |
+| stop and rebuild the session every `renew_every` batches | **bounds** it |
+
+The first two are worth having and neither is sufficient, because both reduce
+the slope and leave the driver's footprint a function of uptime. Only the
+rebuild resets that function. Stopping does not restart the JVM — the py4j
+gateway outlives it and the heap is the same heap — but it makes the entire
+`SparkContext` object graph unreachable, which is the weaker and truer claim:
+the collector is given somewhere to go.
+
+It happens after the offset is committed, where nothing is outstanding. Before
+the commit there would be a several-second window in which a crash redelivers
+a batch that Postgres already has — harmless, because the write upserts, but
+harmless by luck rather than by arrangement.
+
+The separate half of the same problem is the first failure rather than the
+hundredth. `spark_setup.is_fatal` recognises an `OutOfMemoryError` anywhere in
+a cause chain, the stage log re-raises instead of reporting it as a missing
+metric, and `handle` raises `SessionLost` rather than writing a Java stack
+trace into the `last_error` column of a row it never read. The offset is not
+committed, so the batch is redelivered to a consumer that can actually clean
+it.
 
 ### What is deliberately not done
 

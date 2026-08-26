@@ -14,6 +14,7 @@ and here is an assertion about the order of two calls.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -23,17 +24,33 @@ from src.kafka.settings import Subscription
 
 
 class FakeMessage:
-    """One Kafka message, or an error notice when ``error`` is given."""
+    """
+    One Kafka message, or an error notice when ``error`` is given.
 
-    def __init__(self, value: bytes, error=None):
+    Carries topic/partition/offset because the audit trail records them, and a
+    fake that omitted them would let a bug through that only appeared against
+    a real broker.
+    """
+
+    def __init__(self, value: bytes, error=None, offset=0):
         self._value = value
         self._error = error
+        self._offset = offset
 
     def value(self):
         return self._value
 
     def error(self):
         return self._error
+
+    def topic(self):
+        return "transactions.raw.ingested.v1"
+
+    def partition(self):
+        return 0
+
+    def offset(self):
+        return self._offset
 
 
 def event(row_id: int) -> FakeMessage:
@@ -128,11 +145,27 @@ def cleaner(log, monkeypatch):
     return configure
 
 
+def _nowhere() -> str:
+    """:returns: A throwaway path, for a loop whose quarantine is incidental."""
+    import tempfile
+
+    return str(Path(tempfile.mkdtemp()) / "undecodable.jsonl")
+
+
 def run(client, log, **kwargs):
-    """Drives one pass of the loop against a fake client."""
+    """
+    Drives one pass of the loop against a fake client.
+
+    ``audit_trail`` defaults to a path under the pytest tmp root rather than
+    the configured one, so a test that feeds the loop a malformed message
+    cannot append to the repo's real quarantine file.
+    """
     del log
     return consumer_module.consume(
-        Subscription(batch_size=kwargs.pop("batch_size", 10)),
+        Subscription(
+            batch_size=kwargs.pop("batch_size", 10),
+            audit_trail=str(kwargs.pop("audit_trail", "")) or _nowhere(),
+        ),
         spark=object(),
         database=object(),
         client=client,
@@ -174,9 +207,10 @@ def test_a_message_that_is_not_an_event_is_reported_not_raised():
         [event(7), FakeMessage(b"not json at all"), event(8)]
     )
 
+
     assert ids == [7, 8]
     assert len(errors) == 1
-    assert "not JSON" in errors[0]
+    assert "not JSON" in errors[0].error
 
 
 def test_a_completion_event_on_this_topic_is_skipped():
@@ -187,7 +221,7 @@ def test_a_completion_event_on_this_topic_is_skipped():
     )
 
     assert ids == []
-    assert "Something else is publishing" in errors[0]
+    assert "Something else is publishing" in errors[0].error
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +508,143 @@ def test_auto_commit_is_off():
     assert Subscription().consumer_config["enable.auto.commit"] is False
 
 
+# ---------------------------------------------------------------------------
+# The audit trail
+# ---------------------------------------------------------------------------
+
+
+def test_an_undecodable_message_is_kept_with_its_offset(tmp_path):
+    """
+    The failure the status column cannot record. A row that will not clean is
+    marked FAILED against its id; this message has no id, so the only place it
+    can go is the trail -- and what makes the record useful is the offset,
+    which is the address of the original in the log.
+    """
+    trail = tmp_path / "undecodable.jsonl"
+    client = FakeClient([[FakeMessage(b"not json at all", offset=17)]], [])
+
+    run(client, [], audit_trail=trail)
+
+    written = [json.loads(line) for line in trail.read_text().splitlines()]
+    assert len(written) == 1
+    assert written[0]["offset"] == 17
+    assert written[0]["topic"] == "transactions.raw.ingested.v1"
+    assert "not JSON" in written[0]["error"]
+
+    # The bytes come back exactly, which is the whole point of keeping them.
+    import base64
+
+    assert base64.b64decode(written[0]["value_b64"]) == b"not json at all"
+
+
+def test_a_valid_message_leaves_no_trace_in_the_trail(tmp_path, cleaner):
+    """The trail is for refusals, not a second copy of the topic."""
+    del cleaner
+    trail = tmp_path / "undecodable.jsonl"
+
+    run(FakeClient([[event(7)]], []), [], audit_trail=trail)
+
+    assert not trail.exists()
+
+
+def test_a_trail_that_cannot_be_written_does_not_stop_the_consumer(
+    tmp_path, cleaner, log
+):
+    """
+    A full disk must not turn one malformed message into a dead consumer.
+    That would be strictly worse than the skipping this replaced -- so the
+    write fails, the loop says so, and the good ids in the same batch are
+    still cleaned.
+    """
+    del cleaner
+    lines: list = []
+    client = FakeClient(
+        [[FakeMessage(b"not json at all"), event(7)]], log
+    )
+
+    # A directory where the file should be: the open fails, and nothing about
+    # that is this consumer's problem to survive.
+    blocked = tmp_path / "undecodable.jsonl"
+    blocked.mkdir()
+
+    cleaned = consumer_module.consume(
+        Subscription(batch_size=10, audit_trail=str(blocked)),
+        spark=object(),
+        database=object(),
+        client=client,
+        once=True,
+        write_line=lines.append,
+    )
+
+    assert cleaned == 1
+    assert ("cleaned", (7,)) in log
+    assert any("NOWHERE" in line for line in lines)
+
+
+def test_the_message_is_kept_before_the_offset_is_committed(tmp_path):
+    """
+    The same ordering the Postgres write has, for the same reason: the commit
+    is the promise that the message was dealt with, so quarantining after it
+    would let a crash in between lose the only copy.
+    """
+    trail = tmp_path / "undecodable.jsonl"
+    seen: list = []
+
+    class WatchfulClient(FakeClient):
+        def commit(self, asynchronous=False):
+            seen.append(("commit", trail.exists()))
+            return super().commit(asynchronous=asynchronous)
+
+    run(WatchfulClient([[FakeMessage(b"nope")]], []), [], audit_trail=trail)
+
+    assert seen == [("commit", True)]
+
+
+def test_a_message_missing_the_usual_methods_is_still_kept(tmp_path):
+    """
+    ``build`` reads every field through getattr. A record that raised while
+    describing a malformed message would replace a small problem with a
+    larger one.
+    """
+    from src.kafka import audit_trail as trail_module
+
+    trail = tmp_path / "undecodable.jsonl"
+
+    class Bare:
+        def value(self):
+            return b"x"
+
+    assert trail_module.record(Bare(), "no good", trail) is True
+
+    written = json.loads(trail.read_text().splitlines()[0])
+    assert written["offset"] is None
+    assert written["error"] == "no good"
+
+
+def test_records_append_rather_than_replace(tmp_path):
+    """JSON Lines, so a crash costs one line rather than the whole file."""
+    from src.kafka import audit_trail as trail_module
+
+    trail = tmp_path / "undecodable.jsonl"
+    trail_module.record(FakeMessage(b"one", offset=1), "first", trail)
+    trail_module.record(FakeMessage(b"two", offset=2), "second", trail)
+
+    assert len(trail.read_text().splitlines()) == 2
+
+
+def test_the_directory_is_made_when_it_is_missing(tmp_path):
+    """
+    The first undecodable message may well arrive where nothing has written
+    yet, and losing it to a missing directory would defeat the point.
+    """
+    from src.kafka import audit_trail as trail_module
+
+    trail = tmp_path / "never" / "made" / "undecodable.jsonl"
+
+    assert trail_module.record(FakeMessage(b"x"), "why", trail) is True
+    assert trail.exists()
+
+
 def test_a_fresh_group_starts_at_the_beginning():
     """
     ``latest`` would make the first run of a new group skip everything
@@ -493,3 +664,329 @@ def test_the_poll_interval_allows_for_a_slow_spark_batch():
     configured = Subscription().consumer_config["max.poll.interval.ms"]
 
     assert configured > 300_000
+
+
+# ---------------------------------------------------------------------------
+# A driver that is gone, as distinct from a row that is bad
+# ---------------------------------------------------------------------------
+
+
+def _heap_death(ids, **kwargs):
+    """Cleaning, on a driver whose heap has gone. Every batch dies this way."""
+    del ids, kwargs
+    raise RuntimeError(
+        "Py4JJavaError: An error occurred while calling o1.collectToPython.\n"
+        ": java.lang.OutOfMemoryError: Java heap space"
+    )
+
+
+def test_a_dead_driver_stops_the_consumer_instead_of_blaming_the_row(
+    log, cleaner, monkeypatch
+):
+    """
+    An OutOfMemoryError says nothing about these ids.
+
+    Left to the ordinary path it would be caught, written into the ``error``
+    column of a row that was never read, and the loop would go on to the next
+    message and do it again -- which is exactly what happened: six consecutive
+    batches "failed" in five seconds each, having done no work, on a driver
+    that could no longer execute anything.
+    """
+    monkeypatch.setattr(consumer_module, "clean", _heap_death)
+
+    with pytest.raises(consumer_module.SessionLost, match="OutOfMemoryError"):
+        consumer_module.handle(
+            [7], spark=object(), database=object(), verbose=False
+        )
+
+    assert not any(
+        entry[0] == "mark" and entry[2] == "FAILED" for entry in log
+    ), "a heap error must not be recorded as this row's problem"
+
+
+def test_a_dead_driver_is_not_retried_row_by_row(log, cleaner, monkeypatch):
+    """
+    The single-row retry exists to attribute blame within a batch. There is no
+    blame to attribute here and the retry would run the same doomed job once
+    per id, so the batch must abort on the first one.
+    """
+    attempts = []
+
+    def counting(ids, **kwargs):
+        attempts.append(tuple(ids))
+        return _heap_death(ids, **kwargs)
+
+    monkeypatch.setattr(consumer_module, "clean", counting)
+
+    with pytest.raises(consumer_module.SessionLost):
+        consumer_module.handle(
+            [7, 8, 9], spark=object(), database=object(), verbose=False
+        )
+
+    assert attempts == [(7, 8, 9)], (
+        f"the batch was retried after the driver died: {attempts}"
+    )
+
+
+def test_an_ordinary_failure_is_still_the_row_s_own(log, cleaner):
+    """
+    The guard has to be narrow. If it caught everything, one bad row would
+    stop a consumer that is perfectly capable of carrying on -- so this is the
+    same shape of test pointed the other way.
+    """
+    cleaner(broken=[8])
+
+    outcome = consumer_module.handle(
+        [8], spark=object(), database=object(), verbose=False
+    )
+
+    assert "is broken" in outcome.failed[8]
+    assert ("mark", (8,), "FAILED") in log
+
+
+# ---------------------------------------------------------------------------
+# Recycling the session
+# ---------------------------------------------------------------------------
+
+
+def _drive(client, *, renew_every, renew, batches_expected, **kwargs):
+    """
+    Runs the loop over every prepared batch and then stops.
+
+    :param client: A ``FakeClient`` with its batches loaded.
+    :param renew_every: The subscription's setting.
+    :param renew: The factory, or None.
+    :param batches_expected: How many batches the client will yield, after
+        which ``should_stop`` trips. ``once=True`` cannot be used here --
+        recycling happens between batches, so a test that stopped after the
+        first one would be testing nothing.
+    :returns: What ``consume`` returned.
+    """
+    seen = {"polls": 0}
+
+    def should_stop():
+        seen["polls"] += 1
+        return seen["polls"] > batches_expected
+
+    return consumer_module.consume(
+        Subscription(
+            batch_size=10, audit_trail=_nowhere(), renew_every=renew_every,
+        ),
+        spark="session-0",
+        database=object(),
+        client=client,
+        renew=renew,
+        should_stop=should_stop,
+        write_line=lambda line: None,
+        **kwargs,
+    )
+
+
+def test_the_session_is_rebuilt_every_nth_batch(log, cleaner):
+    """
+    The bound the whole change exists for. A driver's footprint is a function
+    of how long it has been up, and nothing inside a batch changes that -- so
+    the loop has to end the driver periodically, or accept that the footprint
+    grows without limit.
+    """
+    built = []
+
+    def factory():
+        built.append(f"session-{len(built) + 1}")
+        return built[-1]
+
+    client = FakeClient([[event(i)] for i in range(1, 7)], log)
+
+    _drive(client, renew_every=2, renew=factory, batches_expected=6)
+
+    assert len(built) == 3, (
+        f"six batches at every-two should rebuild three times, not {built}"
+    )
+
+
+def test_the_new_session_is_the_one_the_next_batch_uses(log, monkeypatch):
+    """
+    A rebuild that the loop then ignored would be strictly worse than no
+    rebuild at all: the cost of a restart, and a stopped context handed to the
+    next batch. So the assertion is on what ``clean`` was given, not on what
+    the factory returned.
+    """
+    handed = []
+
+    def recording_clean(ids, **kwargs):
+        handed.append(kwargs["spark"])
+
+    monkeypatch.setattr(consumer_module, "clean", recording_clean)
+    monkeypatch.setattr(consumer_module.raw, "mark", lambda *a, **k: 1)
+    monkeypatch.setattr(
+        consumer_module.raw, "existing", lambda database, ids: list(ids)
+    )
+
+    client = FakeClient([[event(i)] for i in range(1, 5)], log)
+
+    _drive(
+        client, renew_every=2, renew=lambda: "session-fresh",
+        batches_expected=4,
+    )
+
+    assert handed[:2] == ["session-0", "session-0"]
+    assert handed[2:] == ["session-fresh", "session-fresh"], (
+        f"the rebuilt session never reached the pipeline: {handed}"
+    )
+
+
+def test_recycling_happens_after_the_commit(log, cleaner):
+    """
+    Tearing a driver down between the Postgres write and the Kafka commit
+    would open a several-second window in which a crash redelivers a batch
+    that is already written. The upsert makes that harmless, but harmless by
+    luck is not the same as arranged -- and there is no reason to accept the
+    window, because after the commit there is nothing outstanding at all.
+    """
+    order = []
+
+    client = FakeClient([[event(1)], [event(2)]], log)
+    original_commit = client.commit
+
+    def recording_commit(asynchronous=True):
+        order.append("commit")
+        return original_commit(asynchronous=asynchronous)
+
+    client.commit = recording_commit
+
+    _drive(
+        client,
+        renew_every=1,
+        renew=lambda: order.append("renew") or "session-next",
+        batches_expected=2,
+    )
+
+    assert order == ["commit", "renew", "commit", "renew"], (
+        f"the session was recycled outside the safe window: {order}"
+    )
+
+
+def test_an_idle_consumer_never_recycles(log, cleaner):
+    """
+    Polls that decode nothing do no Spark work, so there is nothing to
+    reclaim. A consumer counting elapsed polls rather than batches would
+    restart its driver all night on an empty topic -- burning the cost of the
+    fix without ever having had the problem.
+    """
+    built = []
+    client = FakeClient([[], [], []], log)
+
+    _drive(
+        client, renew_every=1, renew=lambda: built.append(1),
+        batches_expected=3,
+    )
+
+    assert built == []
+
+
+def test_without_a_factory_the_session_is_left_alone(log, cleaner):
+    """
+    ``renew`` absent means the caller owns the session and expects to still
+    have it -- a test, a notebook, ``--once``. Recycling somebody else's
+    session would stop a context they are about to use.
+    """
+    client = FakeClient([[event(i)] for i in range(1, 5)], log)
+
+    cleaned = _drive(client, renew_every=1, renew=None, batches_expected=4)
+
+    assert cleaned == 4
+
+
+def test_renew_every_zero_turns_recycling_off(log, cleaner):
+    """
+    The switch, for a run short enough that a driver cannot get old.
+    """
+    built = []
+    client = FakeClient([[event(i)] for i in range(1, 5)], log)
+
+    _drive(
+        client, renew_every=0, renew=lambda: built.append(1),
+        batches_expected=4,
+    )
+
+    assert built == []
+
+
+def test_a_failed_rebuild_does_not_kill_the_consumer(log, cleaner):
+    """
+    Recycling is maintenance. A consumer that died because routine maintenance
+    hit a transient failure would be a worse consumer than one that never
+    recycled -- so the failure is reported and the loop carries on, and the
+    next batch reports the real problem with the real error.
+    """
+    said = []
+
+    def broken():
+        raise RuntimeError("no JVM today")
+
+    client = FakeClient([[event(1)], [event(2)]], log)
+
+    consumer_module.consume(
+        Subscription(batch_size=10, audit_trail=_nowhere(), renew_every=1),
+        spark="session-0",
+        database=object(),
+        client=client,
+        renew=broken,
+        should_stop=_stops_after(2),
+        write_line=said.append,
+    )
+
+    assert any("could not rebuild" in line for line in said), (
+        f"a failed recycle has to be said out loud: {said}"
+    )
+    assert any(entry[0] == "cleaned" for entry in log), (
+        "the loop stopped cleaning because maintenance failed"
+    )
+
+
+def _stops_after(polls: int):
+    """:returns: A ``should_stop`` that trips once ``polls`` have been made."""
+    seen = {"n": 0}
+
+    def should_stop():
+        seen["n"] += 1
+        return seen["n"] > polls
+
+    return should_stop
+
+
+def test_recycling_stops_the_session_it_was_given(log, cleaner):
+    """
+    The session in hand, not whatever session is active in the process.
+
+    A consumer has exactly one, so the two are the same there and the bug is
+    invisible. Anywhere else they differ: under pytest the active session
+    belongs to a suite-scoped fixture, and the first version of this reached
+    for it and tore it down -- which every later Spark test then failed on,
+    with an AttributeError naming nothing to do with the consumer.
+    """
+    stopped = []
+
+    class Session:
+        def __init__(self, name):
+            self.name = name
+
+        def stop(self):
+            stopped.append(self.name)
+
+    mine = Session("mine")
+    client = FakeClient([[event(1)], [event(2)]], log)
+
+    consumer_module.consume(
+        Subscription(batch_size=10, audit_trail=_nowhere(), renew_every=1),
+        spark=mine,
+        database=object(),
+        client=client,
+        renew=lambda: Session("fresh"),
+        should_stop=_stops_after(2),
+        write_line=lambda line: None,
+    )
+
+    assert stopped == ["mine", "fresh"], (
+        f"the wrong session was stopped, or none was: {stopped}"
+    )

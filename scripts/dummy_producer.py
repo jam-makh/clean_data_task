@@ -19,10 +19,17 @@ listening, and if none is, the message waits on the topic until one is --
 which is worth seeing at least once, because it is the property that makes
 this a queue rather than a function call.
 
-``--pending`` re-emits every row the consumer has not reported on. That is the
-recovery path after the consumer was down, or after a row failed and was
-fixed. It is safe to run repeatedly: the id is derived, the write is an upsert,
-and a row cleaned twice is a row cleaned once -- see ``src/jobs.py``.
+``--pending`` emits every row still at ``status = 'PENDING'`` -- rows that
+were never attempted, because the consumer was down when they landed. It is
+safe to run repeatedly: the id is derived, the write is an upsert, and a row
+cleaned twice is a row cleaned once -- see ``src/jobs.py``.
+
+It does **not** pick up FAILED rows. That is deliberate rather than an
+oversight: "never attempted" and "attempted and broke" are the distinction the
+status column exists to make, and a bulk re-emit of failures whose cause is
+still unfixed would simply fail them all again. To retry one once you have
+fixed the cause, pass its id to ``--ids``; ``last_error`` in
+``raw_transactions`` says which ids those are and why.
 """
 
 import argparse
@@ -106,8 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--pending",
         action="store_true",
         help=(
-            "Every row the consumer has not reported on, oldest first. The "
-            "recovery path after the consumer was down."
+            "Every row still PENDING, oldest first -- the ones that were "
+            "never attempted. Not FAILED rows; retry those by id."
         ),
     )
     parser.add_argument(
@@ -145,7 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.pending:
         ids = raw.pending_ids(db_settings.load(), limit=args.limit)
         if not ids:
-            print("Nothing pending: every row has been reported on.")
+            print(
+                "Nothing pending: every row has been attempted. Any that "
+                "failed are FAILED, not PENDING -- retry those by id."
+            )
             return 1
     elif args.ids:
         try:

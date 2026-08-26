@@ -77,6 +77,34 @@ WORKER_SOCKET_TIMEOUT = "120"
 # construction, and the cost is a signal handler installed per worker.
 WORKER_FAULTHANDLER = "true"
 
+# How much of its own history the driver keeps, in a session that never ends.
+#
+# Spark's status listeners are not a UI feature. They run whether or not
+# `spark.ui.enabled` is set, because the same store answers `spark.sparkContext
+# .statusTracker` and the SQL tab alike, and they hold every retained entry on
+# the driver heap -- an execution's entry includes its whole plan graph.
+#
+# The defaults are 1000 apiece, sized for a batch job that runs a few dozen
+# jobs and exits. The consumer is the opposite: one session, one message at a
+# time, for as long as the process lives. At roughly a dozen Spark actions per
+# message it reaches the 1000-execution ceiling in under a hundred messages,
+# and until it does, nothing is evicted -- the heap simply fills with the
+# recorded history of work that finished minutes ago. Measured on the run this
+# was written for: stage 1777 and 673 live broadcasts in one session, ending in
+# OutOfMemoryError on a batch of one row.
+#
+# 20 is chosen against what the history is FOR here. Nothing in this project
+# reads it back -- there is no UI to open, and the audit trail is
+# `pipeline.report`, which is computed from the data and not from Spark's
+# bookkeeping. What remains is the handful of recent entries an error message
+# quotes when a job fails, and 20 covers one message's worth of those with room
+# to spare. This is a cap on Spark's memory of itself, not on anything the
+# pipeline records.
+RETAINED_JOBS = "20"
+RETAINED_STAGES = "20"
+RETAINED_TASKS = "200"
+RETAINED_EXECUTIONS = "20"
+
 # Attached when present rather than required, so a session built by a test and
 # one built by the pipeline reach the same jars.
 JARS_DIR = Path("jars")
@@ -165,6 +193,14 @@ def settings(**overrides) -> dict[str, str]:
         # both exist because a worker that dies is otherwise unattributable.
         "spark.python.authenticate.socketTimeout": WORKER_SOCKET_TIMEOUT,
         "spark.python.worker.faulthandler.enabled": WORKER_FAULTHANDLER,
+        # Bounded because this session outlives the work it is describing --
+        # see RETAINED_JOBS. Four keys and not one: jobs, stages and tasks are
+        # the core listener's, executions are the SQL listener's, and capping
+        # only the first three leaves the largest of the four uncapped.
+        "spark.ui.retainedJobs": RETAINED_JOBS,
+        "spark.ui.retainedStages": RETAINED_STAGES,
+        "spark.ui.retainedTasks": RETAINED_TASKS,
+        "spark.sql.ui.retainedExecutions": RETAINED_EXECUTIONS,
     }
 
     jars = sorted(JARS_DIR.glob("*.jar")) if JARS_DIR.is_dir() else []
@@ -228,6 +264,44 @@ def session(app_name: str = APP_NAME, master: str | None = None, **overrides):
     # it is a property of the context rather than of the builder.
     spark.sparkContext.setLogLevel("ERROR")
     return spark
+
+
+# JVM failures that end the session rather than the job.
+#
+# An OutOfMemoryError is not a fact about the row being cleaned. The heap is
+# gone process-wide, every subsequent job fails the same way, and the driver
+# does not recover -- the run this was written against consumed six more
+# messages after the first one, "failing" each in five seconds without doing
+# any work, and marked six good rows FAILED on the way past. A StackOverflow
+# in the JVM is the same shape of problem.
+#
+# Matched on the name in the message text because that is what survives the
+# trip: these arrive in Python as ``Py4JJavaError`` wrapping a Java throwable,
+# so the Python exception TYPE says only "something in the JVM went wrong" and
+# the distinction that matters is one level down in the string.
+FATAL_JVM_ERRORS = (
+    "OutOfMemoryError",
+    "StackOverflowError",
+)
+
+
+def is_fatal(exc: BaseException) -> bool:
+    """
+    :param exc: Anything raised out of a Spark call.
+    :returns: True if the session, and not merely the job, is finished.
+
+    The cause chain is walked as well as the exception itself: a job failure
+    raised ``from`` an OOM is still an OOM, and reading only the outermost
+    message would classify it as an ordinary bad row.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        text = f"{type(exc).__name__}: {exc}"
+        if any(name in text for name in FATAL_JVM_ERRORS):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def stop() -> None:

@@ -195,39 +195,58 @@ python -m scripts.dummy_producer --id 42
 ```
 
 Use the id step 6 printed. `--ids 42,43` or `--ids 40-44` for several,
-`--pending` to re-announce every row the consumer has not reported on, and
+`--pending` to re-announce every row still PENDING — the ones never attempted — and
 `--dry-run` to see the exact message without publishing it.
 
-**8. Watch the first terminal.** The consumer picks the event up and narrates
-the cleaning, layer by layer:
+**8. Watch the first terminal.** The consumer picks the event up, names each
+stage as it runs, and prints the batch's audit trail before it writes:
 
 ```
 +- raw ids 21,22,46 ----------------------------------------
 | [INGESTION    ] read raw_transactions          3 rows
-| [NORMALIZATION] timestamps                     3 rows  19.01s
-|     txn_ts.status[TIME_UNKNOWN] = 1
-| [ENRICHMENT   ] macro                          3 rows  14.39s
-|     INTEREST_RATE_INDEX.recovered = 1
-| [DEDUPLICATION] duplicates                     3 rows   3.09s
-| [NORMALIZATION] codes                          3 rows   2.09s
-|     processing_type.disagrees_with_code = 3
-| [NORMALIZATION] amounts                        3 rows   3.24s
-| [DERIVATION   ] balance                        3 rows   6.11s
-|     adjusted[NO_ANCHOR] = 3
-| [NORMALIZATION] missing                        3 rows   1.94s
-| [ENRICHMENT   ] merchant                       3 rows  18.87s
-| [ENRICHMENT   ] geo                            3 rows   4.09s
-| [ENRICHMENT   ] mcc                            3 rows  13.30s
-|     confidence[HIGH] = 3
-| [VALIDATION   ] consistency                    3 rows   8.02s
-|     CODE_TYPE_MISMATCH = 3
+| [NORMALIZATION] timestamps
+| [ENRICHMENT   ] macro
+| [DEDUPLICATION] duplicates
+| [NORMALIZATION] codes
+| [NORMALIZATION] amounts
+| [DERIVATION   ] balance
+| [NORMALIZATION] missing
+| [ENRICHMENT   ] merchant
+| [ENRICHMENT   ] geo
+| [ENRICHMENT   ] mcc
+| [VALIDATION   ] consistency
+|     audit:
+|       pipeline      input_rows = 3
+|       timestamps    txn_ts.status[TIME_UNKNOWN] = 1
+|       macro         INTEREST_RATE_INDEX.recovered = 1
+|       duplicates    exact_duplicates_dropped = 0
+|       codes         processing_type.disagrees_with_code = 3
+|       balance       adjusted[NO_ANCHOR] = 3
+|       mcc           confidence[HIGH] = 3
+|       consistency   CODE_TYPE_MISMATCH = 3
+|       pipeline      output_rows = 3
 | [PERSISTENCE  ] upsert 3 -> cleaned_transactions       3 rows
-+- 3 row(s) cleaned in 119.6s ------------------------
++- 3 row(s) cleaned in 41.2s ------------------------
 ```
 
-Those numbers are each stage's own metrics, evaluated at that point in the
-run — not decoration. `--quiet` turns the counting off, which is faster
-because each counted stage costs a Spark action.
+The `audit:` block is the record, and it is not optional: it is every step's
+metrics over the finished frame — the same `CleaningReport` the batch run
+writes as a sheet and the completion event carries — so nothing is coerced,
+dropped or flagged without a line here saying so. It costs two Spark actions
+for the whole batch, however many stages ran.
+
+The stage lines above it are narration. `--trace` adds each stage's own
+numbers and timings, evaluated at that point in the run; that costs a Spark
+action *per stage* and holds a cached frame per stage on the driver, so it is
+for watching one batch closely and not for a consumer left running. `--quiet`
+suppresses narration and audit together, for a consumer whose output nobody
+is reading.
+
+Every fiftieth batch the consumer prints `recycling the Spark session ...` and
+pauses for a few seconds. That is deliberate, and it is what keeps a driver
+that never exits from ending its life unable to clean a single row — see
+`renew_every` in `config/pipeline.yaml`, and ARCHITECTURE.md on why capping
+Spark's retention was not enough on its own.
 
 **9. Check what arrived.**
 
@@ -257,9 +276,10 @@ python -c "from src.db import raw, settings; db = settings.load(); print(raw.fet
 | A row will not clean | Marks it `FAILED` with the reason in `last_error`, commits, carries on. One bad row must not stop the other thousand. |
 | A *batch* fails | Retries the batch one row at a time, so the failure lands on the row that caused it and the others are still cleaned. |
 | The id names no row | Reports it and moves on — in under a second, because the existence check runs before any Spark work. |
-| A message is not one of ours | Skipped and counted. A completion event arriving on this topic is refused by name. |
+| A message is not one of ours | Refused by name, counted, and appended to `data/audit_trail/undecodable.jsonl` with its bytes and its offset — it has no id, so `raw_transactions.status` has no row to mark for it. |
 | The consumer was down | Nothing is lost; the messages wait on the topic. It resumes at its committed offset on restart. |
-| A row was missed entirely | `python -m scripts.dummy_producer --pending` re-announces everything not yet reported on. |
+| A row was missed entirely | `python -m scripts.dummy_producer --pending` re-announces everything still PENDING. |
+| A row failed and the cause is fixed | Re-announce it by id: `--ids 42`. `--pending` will not pick it up — a FAILED row was attempted, and re-emitting every known-broken row on each recovery run would just fail them all again. `last_error` says which ids and why. |
 | The same row arrives twice | Cleaned again, written again, same values under the same job id — a second pass changes nothing a reader can observe. |
 
 Every *why* behind the above — the all-TEXT landing table, the id-only message,
