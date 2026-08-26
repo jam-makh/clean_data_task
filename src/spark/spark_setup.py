@@ -23,7 +23,22 @@ from pathlib import Path
 # Session configuration
 # ---------------------------------------------------------------------------
 
-LOCAL_MASTER = "local[*]"
+# `local[*]` and not a number is the usual answer, and the wrong one where the
+# only Python in the plan is a `pandas_udf`. Every task running one spawns a
+# `python.exe` that imports pandas and unpickles the merchant resolver before
+# it can open its socket back, and `*` means one such spawn per core -- times
+# however many stages Spark has in flight, since a broadcast and a cache build
+# materialise alongside the stage that asked for them. Measured on this box:
+# 27 concurrent worker processes against 16 cores and about a gigabyte of free
+# memory, and one of them missing its handshake even at a 120s timeout. That
+# surfaces as "Python worker failed to connect back", which describes the
+# symptom and not the cause -- the worker was starved, not slow.
+#
+# Bounded at 8, matching SHUFFLE_PARTITIONS so a shuffle stage and a scan
+# stage want the same number of tasks. Below the core count on purpose: the
+# headroom is what the concurrent stages spawn into.
+LOCAL_THREADS = 8
+LOCAL_MASTER = f"local[{LOCAL_THREADS}]"
 APP_NAME = "transaction-cleaning"
 
 # Spark's default is 200. On 265k rows that is 200 tasks over a few hundred
@@ -58,7 +73,7 @@ TIME_PARSER_POLICY = "CORRECTED"
 
 # How long a freshly spawned Python worker gets to open its socket back to the
 # driver before Spark gives up on it. The default is 15s, which is generous on
-# Linux and tight here: `local[*]` spawns one worker per core at once, Windows
+# Linux and tight here: every local thread spawns a worker at once, Windows
 # process creation is slow, and there is no Unix-domain-socket path on this
 # platform -- Spark 4's `spark.python.unix.domain.socket.enabled` is a POSIX
 # option, so every worker goes through loopback TCP. A cold start under that
@@ -109,6 +124,16 @@ RETAINED_EXECUTIONS = "20"
 # one built by the pipeline reach the same jars.
 JARS_DIR = Path("jars")
 
+# Where the JVM drops its own wreckage. A driver that dies of native OOM writes
+# an `hs_err_pid<pid>.log` and, with the compiler mid-flight, a
+# `replay_pid<pid>.log` beside it -- and "beside it" means the working
+# directory, i.e. the repository root, unless told otherwise. They are crash
+# dumps rather than logs: nothing writes to them during a healthy run and
+# nothing reads them back afterwards except a person diagnosing a specific
+# crash. Pointed here so the root stays clean and one `logs/` is all there is
+# to sweep.
+LOGS_DIR = Path("logs")
+
 
 def _repair_windows_native_path() -> None:
     r"""
@@ -157,11 +182,22 @@ def _pin_driver_memory(memory: str) -> None:
 
     :param memory: A JVM size string, e.g. ``"4g"``.
     """
+    LOGS_DIR.mkdir(exist_ok=True)
+    # Same reasoning as the heap for the crash-dump paths: -XX options are read
+    # by the JVM at launch, so they have to travel with the submit args rather
+    # than through a builder config that arrives too late to matter. %p is the
+    # JVM's own placeholder for the pid, expanded by it and not by us.
+    crash_dumps = (
+        f"-XX:ErrorFile={LOGS_DIR}/hs_err_pid%p.log "
+        f"-XX:ReplayDataFile={LOGS_DIR}/replay_pid%p.log"
+    )
     # The trailing `pyspark-shell` is not decoration: the launcher treats the
     # last token as the application to submit, and omitting it makes the
     # gateway fail to start complaining about a missing primary resource.
     os.environ.setdefault(
-        "PYSPARK_SUBMIT_ARGS", f"--driver-memory {memory} pyspark-shell"
+        "PYSPARK_SUBMIT_ARGS",
+        f'--driver-memory {memory} --driver-java-options "{crash_dumps}" '
+        f"pyspark-shell",
     )
 
 
@@ -193,6 +229,12 @@ def settings(**overrides) -> dict[str, str]:
         # both exist because a worker that dies is otherwise unattributable.
         "spark.python.authenticate.socketTimeout": WORKER_SOCKET_TIMEOUT,
         "spark.python.worker.faulthandler.enabled": WORKER_FAULTHANDLER,
+        # Stated because it is what keeps the bound above meaningful: with
+        # reuse off, a worker is torn down and respawned per task rather than
+        # per stage, and eight threads spawn as many processes as sixteen did.
+        # This is today's default and the one setting here whose flip would be
+        # invisible -- the run would simply get slower and start timing out.
+        "spark.python.worker.reuse": "true",
         # Bounded because this session outlives the work it is describing --
         # see RETAINED_JOBS. Four keys and not one: jobs, stages and tasks are
         # the core listener's, executions are the SQL listener's, and capping

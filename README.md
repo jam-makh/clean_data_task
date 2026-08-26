@@ -487,13 +487,28 @@ Vocabularies live in `src/rules/json/` as data, never as code, so updating one n
 
 ## Testing
 
+Two ways in. `make test` is the one that runs in CI and proves the rules are
+right. The walkthrough below is the one that shows the system actually working:
+a dirty row goes in one end and comes out clean at the other, and every command
+is one line.
+
+### The automated suite
+
 ```bash
 make test
 ```
 
-Over 600 tests, table-driven from the awkward values in the real file rather than invented ones. They fall into seven groups: the row-level parsing rules, the policies those rules exist to serve, staleness guards on the JSON rule files, the output contract, the pandas-vs-Spark parity harness, the streaming path's own units, and one end-to-end test of the whole flow. [What a test should assert](ARCHITECTURE.md#what-a-test-should-assert) explains the distinction the suite is built on.
+Over 600 tests, table-driven from the awkward values in the real file rather
+than invented ones. They fall into seven groups: the row-level parsing rules,
+the policies those rules exist to serve, staleness guards on the JSON rule
+files, the output contract, the pandas-vs-Spark parity harness, the streaming
+path's own units, and one end-to-end test of the whole flow.
+[What a test should assert](ARCHITECTURE.md#what-a-test-should-assert) explains
+the distinction the suite is built on.
 
-Three markers say what a test needs, and each **skips** rather than fails when it is missing — a machine without the stack up is a setup condition with its own diagnostic, not a code defect.
+Three markers say what a test needs, and each **skips** rather than fails when
+it is missing -- a machine without the stack up is a setup condition with its
+own diagnostic, not a code defect.
 
 | Marker | Needs | Deselect with |
 |---|---|---|
@@ -507,16 +522,261 @@ make parity       # only the pandas-vs-Spark comparison
 make verify       # does this machine run the Stage 2 stack at all
 ```
 
-The streaming path is tested the same way it is built — in pieces that need nothing, plus one test of the seams that needs everything:
+The streaming path is tested the same way it is built -- in pieces that need
+nothing, plus one test of the seams that needs everything:
 
 ```bash
 python -m pytest -q tests/test_db_raw.py tests/test_kafka_ingest_events.py tests/test_kafka_consumer.py tests/test_stagelog.py
 python -m pytest -q tests/test_streaming.py
 ```
 
-The first line runs in about a second and covers the landing table's contract against the CSV header, the event payload and everything `decode` refuses, the consumer's commit ordering and its failure handling against a fake broker, and the stage log's output. The second takes a few minutes and proves the parts fit: a dirty row inserted, announced, consumed, cleaned and upserted, then cleaned a second time to show a redelivery changes nothing.
+The first line runs in about a second and covers the landing table's contract
+against the CSV header, the event payload and everything `decode` refuses, the
+consumer's commit ordering and its failure handling against a fake broker, and
+the stage log's output. The second takes a few minutes and proves the parts
+fit: a dirty row inserted, announced, consumed, cleaned and upserted, then
+cleaned a second time to show a redelivery changes nothing.
 
-[The parity harness](ARCHITECTURE.md#the-parity-harness) explains what it compares, what it deliberately does not treat as a difference, and how it grows as stages are ported.
+[The parity harness](ARCHITECTURE.md#the-parity-harness) explains what it
+compares, what it deliberately does not treat as a difference, and how it grows
+as stages are ported.
+
+### Walking the whole thing by hand
+
+What this demonstrates, in one sentence: a dirty transaction lands in Postgres,
+Kafka announces its id, a Spark consumer cleans that row and upserts it, and
+`main.py` does the same cleaning over the whole file -- one set of rules, two
+ways of being asked.
+
+```
+docker (postgres + kafka)
+        |
+  seed-raw  -->  raw_transactions      22 TEXT columns, status = PENDING
+        |
+  emit      -->  transactions.raw.ingested.v1     {"id": 42}
+        |
+  consumer  -->  reads row 42, runs the cleaning stages
+        |
+  stage + merge  -->  cleaned_transactions        typed, constrained
+        |
+  status = CLEANED, completion event on pipeline.run.completed.v1
+```
+
+Anywhere below that shows a `psql` command, you can equally point pgAdmin,
+DBeaver or a JetBrains data source at the same database and look at the tables
+directly -- the queries are written out because they are reproducible in a
+terminal, not because the terminal is the only way to see this.
+
+**Two terminals.** The consumer blocks, so it wants one to itself; everything
+else runs in the other.
+
+#### 1. Bring the stack up
+
+```bash
+docker compose up -d
+```
+
+Starts Postgres and Kafka. Spark is deliberately not in here -- it runs in the
+project venv on the host, so the driver stays debuggable.
+
+```bash
+docker compose ps
+```
+
+Both containers must read **healthy**, not merely running: Postgres accepts a
+TCP connection several seconds before it accepts a query.
+
+```bash
+make verify
+```
+
+Checks Java, Spark, Postgres and Kafka in one pass; every failure names its own
+fix.
+
+#### 2. Start from a known state
+
+```bash
+make db-reset
+```
+
+Drops all three tables and rebuilds them from the schema files -- destructive,
+which is why it is separate from `db-migrate`.
+
+```bash
+make kafka-topic
+```
+
+Creates both topics. Auto-create is off on purpose, so a producer aimed at a
+typo'd topic fails loudly instead of inventing one nobody consumes.
+
+#### 3. Put a dirty row in
+
+```bash
+make seed-raw N=3 DIRTY=1 OFFSET=0
+```
+
+Cuts 3 rows from the extract and inserts them verbatim, then prints their ids.
+`DIRTY=1` picks rows a stage will visibly change -- a blank settlement date, a
+missing balance, an amount written `5.727.580,00`, a merchant name still
+wearing its terminal prefix -- because a run that cleans an already-clean row
+looks exactly like a run that did nothing. `OFFSET` skips that many source rows
+first; the scan always starts at the top of the file, so without it every run
+seeds the same transactions.
+
+```bash
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select id, txn_id, txn_amount, txn_date_time, settle_date, merchant_name, status from raw_transactions order by id desc limit 3;"
+```
+
+Shows what actually landed: mixed date formats, European decimals, ragged
+merchant names, `status = PENDING`. Every column is `TEXT`, so the database
+coerced nothing on the way in.
+
+#### 4. Start the consumer (second terminal)
+
+```bash
+make consumer
+```
+
+Subscribes to `transactions.raw.ingested.v1` and blocks until something
+arrives. Leave it visible.
+
+#### 5. Announce the row
+
+```bash
+make emit ID=42
+```
+
+Publishes `{"id": 42}` -- the id and nothing else, because the row is already
+durable in Postgres and the database stays the single source of truth. Watch
+the second terminal wake up and clean it.
+
+#### 6. Look at what came out
+
+```bash
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select txn_id_cleaned, txn_ts, txn_amount_cleaned, txn_ccy, merchant_name_cleaned, running_balance_cleaned, sync_job_id, cleaned_at from cleaned_transactions order by cleaned_at desc limit 3;"
+```
+
+The same transactions, typed and constrained: timestamps parsed, amounts
+numeric, merchants normalised. `running_balance_cleaned` may be null -- the
+balance stage states a figure only where the arithmetic proves it, rather than
+repeating an unverified number.
+
+```bash
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select id, status, cleaned_at, last_error from raw_transactions order by id desc limit 3;"
+```
+
+The landing row is now `CLEANED`. That flag is what makes recovery possible in
+step 8.
+
+#### 7. Show that redelivery is safe
+
+The claim worth proving properly: at-least-once delivery is fine because the
+write is idempotent.
+
+```bash
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select count(*) rows, count(distinct txn_id_cleaned) keys, sum(txn_amount_cleaned) total, md5(string_agg(txn_id_cleaned || ':' || txn_amount_cleaned, ',' order by txn_id_cleaned)) fingerprint from cleaned_transactions;"
+```
+
+Takes a fingerprint of the whole table -- one value that changes if any row's
+key or amount does.
+
+```bash
+make emit ID=42
+```
+
+Replays the identical event. Run it two or three times: the consumer re-runs
+the full cleaning each time, so nothing is being skipped by a duplicate check.
+
+```bash
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select count(*) rows, count(distinct txn_id_cleaned) keys, sum(txn_amount_cleaned) total, md5(string_agg(txn_id_cleaned || ':' || txn_amount_cleaned, ',' order by txn_id_cleaned)) fingerprint from cleaned_transactions;"
+```
+
+The same query again: row count, key count, total and fingerprint all
+unchanged.
+
+```bash
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select txn_id_cleaned, txn_amount_cleaned, sync_job_id, cleaned_at from cleaned_transactions order by cleaned_at desc limit 3;"
+```
+
+What *did* move: `cleaned_at` is newer and `sync_job_id` names the most recent
+run. The data is identical, the provenance is current. The mechanism is the
+`INSERT ... SELECT DISTINCT ON (txn_id_cleaned) ... ON CONFLICT DO UPDATE` in
+`src/db/contract.py` -- `DISTINCT ON` because `ON CONFLICT` raises if one
+statement touches a key twice, and `cleaned_at = now()` sits outside `EXCLUDED`
+so an updated row does not keep the timestamp of the load that first inserted
+it.
+
+#### 8. Recover from an outage
+
+Stop the consumer with a single Ctrl-C: it finishes its batch, commits, and
+leaves the consumer group deliberately, so a restart rejoins immediately rather
+than waiting for the broker to time the old member out.
+
+```bash
+make seed-raw N=2 DIRTY=1 OFFSET=9000
+```
+
+Inserts two more rows while nothing is listening -- they sit at `PENDING`.
+
+```bash
+make emit PENDING=1
+```
+
+Asks the database which rows are still `PENDING` and publishes an event for
+each. You do not have to remember which ids were stranded, or how they were
+stranded -- seeded during downtime, emitted into a dead consumer, or abandoned
+by a crash mid-batch all look the same from here.
+
+```bash
+make consumer
+```
+
+Restart it and watch it drain the backlog.
+
+#### 9. The same rules over the whole file
+
+```bash
+make run-dry
+```
+
+Reads the full extract, runs every cleaning stage, prints the report, writes
+nothing -- the state you want when the question is whether the cleaning is
+right rather than whether the write is.
+
+```bash
+make run
+```
+
+The same run, writing: project the frame, bulk-load it into the unlogged
+staging table, then one `ON CONFLICT` statement merges it into
+`cleaned_transactions`. Spark's JDBC writer has no upsert mode, which is why
+the staging table exists.
+
+```bash
+make run-pandas
+```
+
+The Stage 1 pandas path over the same source, producing the multi-sheet
+workbook instead of database rows. No JVM, no containers.
+
+#### 10. Close with the correctness argument
+
+```bash
+make parity
+```
+
+Runs the pandas pipeline and the Spark pipeline over the same sample and
+compares them column for column -- the evidence that the rewrite did not change
+the answers.
+
+#### 11. Tear down
+
+```bash
+docker compose down
+```
+
+Stops both containers, keeping the Postgres volume. Add `-v` to discard the
+data too.
 
 ---
 

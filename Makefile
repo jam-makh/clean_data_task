@@ -16,7 +16,7 @@ PYTHON ?= python
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
 help:
-	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
+	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
 
 # Run the pipeline on the configured engine, which is spark: read the extract,
 # clean it, upsert to Postgres. Needs the stack up -- `make verify` first.
@@ -93,8 +93,13 @@ db-migrate:
 # repeatable. `make seed-raw N=3` for three rows; DIRTY=1 picks rows a stage
 # will visibly change, which is what you want when the point is to watch the
 # cleaning happen rather than to watch it find nothing.
+#
+# The scan starts at the top of the extract every time, so the same N rows come
+# back on every run -- resetting the database does not change which rows the
+# file offers first. OFFSET=5000 skips that many source rows before taking any,
+# which is how you seed different transactions on a second run.
 seed-raw:
-	$(PYTHON) -m scripts.seed_raw --count $(or $(N),1) $(if $(DIRTY),--dirty,)
+	$(PYTHON) -m scripts.seed_raw --count $(or $(N),1) --offset $(or $(OFFSET),0) $(if $(DIRTY),--dirty,)
 
 # Drop all three tables and rebuild them. This is how a column added to
 # sql/schema.sql reaches a database that already exists, because IF NOT EXISTS
