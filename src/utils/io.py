@@ -31,19 +31,27 @@ DATE_ONLY = {"settle_date_cleaned"}
 # has a machine-readable counterpart carrying the same statement --
 # SETTLE_DATE_STATUS and RUNNING_BALANCE_STATUS.
 #
-# RUNNING_BALANCE_CLEANED is in the set too, and the objection to putting it
-# there is answered rather than ignored: its blanks are three different
-# answers -- withheld-as-wrong, withheld-as-unverifiable, and
-# nothing-to-count-from -- and one word cannot say which. What the word does
-# say is the thing a reader of that column actually needs first, that no
-# balance is being asserted here, and it says it in the cell rather than by
-# the absence of one. Which of the three it was is in
-# RUNNING_BALANCE_STATUS, immediately to its right, on every one of those
-# rows; the word points at that column instead of standing in for it.
+# RUNNING_BALANCE_FILLED is in the set too, and it now means one thing rather
+# than three: the column states a figure wherever the arithmetic reaches one,
+# so an empty cell is the single UNAVAILABLE case -- no trusted balance
+# anywhere in the account is reachable from this row. RUNNING_BALANCE_STATUS,
+# immediately to its right, says so in a word a machine can read; this word is
+# for the reader looking at the cell itself.
+#
+# RUNNING_BALANCE_DISCREPANCY is deliberately NOT in the set. Its blank says
+# "the two directions did not disagree here", which is the ordinary case and
+# not an absence of knowledge; printing UNKNOWN on 98.8% of the rows of a
+# column whose whole point is to be rare would bury the rows that carry it.
 UNKNOWN_TEXT = "UNKNOWN"
+#
+# running_balance_currency is deliberately NOT in the set. Its blank says
+# something different from the others': not "no balance is asserted here" but
+# "there is no balance here to denominate", which the empty cell beside the
+# empty balance already says. Printing UNKNOWN in it would imply the
+# denomination is the unknown part.
 UNKNOWN_WHEN_MISSING = {
-    "settle_date_cleaned", "running_balance", "running_balance_cleaned",
-    "running_balance_adjusted",
+    "settle_date_cleaned", "running_balance", "running_balance_filled",
+    "running_balance_normalized",
 }
 
 # A timestamp is rendered to the precision it was actually observed at, so the

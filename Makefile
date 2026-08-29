@@ -11,12 +11,12 @@ PYTHON ?= python
 # Deletions go through Python rather than `find`/`rm -rf` for the same reason:
 # those are sh-only, and Python is guaranteed present in a Python project.
 
-.PHONY: help run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset seed-raw emit consumer clean clean-pyc clean-build
+.PHONY: help fingerprint run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset seed-raw emit consumer clean clean-pyc clean-build
 
 # `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
 # strips, so the help text goes through Python too.
 help:
-	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
+	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make fingerprint One line describing cleaned_transactions\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
 
 # Run the pipeline on the configured engine, which is spark: read the extract,
 # clean it, upsert to Postgres. Needs the stack up -- `make verify` first.
@@ -80,6 +80,14 @@ emit:
 # to see the flow rather than leave it running.
 consumer:
 	$(PYTHON) consumer.py $(if $(ONCE),--once,)
+
+# One line describing the whole cleaned table: counts, total, and a digest over
+# the key and the amount. Run it, replay an event, run it again -- everything
+# but `last write` is identical if the upsert was idempotent, which is the
+# claim, and `last write` moving is the proof it really did write again rather
+# than skipping the row.
+fingerprint:
+	$(PYTHON) -m scripts.fingerprint
 
 # Create cleaned_transactions, its indexes and the staging table. Idempotent --
 # every statement is IF NOT EXISTS -- so running it against a database that is

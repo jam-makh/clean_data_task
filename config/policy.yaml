@@ -57,7 +57,31 @@ balance:
   # 2-decimal figures can leave behind. A relative tolerance would scale with
   # the balance and quietly accept a 60,000 LBP discrepancy on a large
   # account, which is the exact failure this check exists to catch.
-  reconcile_tolerance: 0.01
+  #
+  # 0.02 rather than 0.01. A running balance is reached by repeated addition
+  # of 2-decimal figures, and the residue that leaves is not bounded by half a
+  # cent once a chain is long enough -- on this source the billing-regime
+  # chains reconcile on 87.8% of adjacent pairs at 0.01 and on 100.0% of them
+  # at 0.02, and the figure does not move again at 0.05, 1.0 or 5.0. That
+  # plateau is the evidence: the rows between the two thresholds are rounding,
+  # not error, because a real discrepancy would not sit in a band one cent
+  # wide. The native regime holds flat at 99.6% across the whole sweep, so the
+  # looser tolerance buys nothing there and costs nothing either.
+  reconcile_tolerance: 0.02
+
+  # What it costs, in units of "rows this labelling fails to explain", to
+  # conclude that the source changed which column moves the balance. Paid once
+  # per change point by the segmentation in `_detect_regimes`.
+  #
+  # It is a floor on the evidence, not a guess at where the seam is. At 50, a
+  # run of rows has to be better explained by the other mover by more than 100
+  # rows' worth -- two switches, in and out -- before it is called a regime,
+  # which is far more than coincidence produces and far less than the 30000
+  # rows the real change in this extract is worth. Raise it if noise is
+  # opening spurious regimes; lower it if a genuinely short one is being
+  # missed. Nothing here encodes how many change points to expect, so a file
+  # with none and a file with several are both handled by the same number.
+  regime_switch_penalty: 50
 
 duplicates:
   # Tried in order; the first list whose columns are all present wins. These

@@ -223,7 +223,12 @@ def test_a_settle_date_that_is_not_known_is_written_as_a_word(name):
 
 
 @pytest.mark.parametrize(
-    "name", ["running_balance_cleaned", "RUNNING_BALANCE_CLEANED"]
+    "name",
+    [
+        "running_balance_filled",
+        "RUNNING_BALANCE_FILLED",
+        "running_balance_normalized",
+    ],
 )
 def test_a_withheld_balance_is_written_as_a_word(name):
     """

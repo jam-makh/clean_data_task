@@ -56,7 +56,11 @@ def frame_for(spark, rows, amount: float = 10.5):
         T.StructField("BILLING_AMOUNT", T.StringType()),
         T.StructField("BILLING_CURRENCY", T.StringType()),
         T.StructField("FX_RATE", T.StringType()),
-        T.StructField("RUNNING_BALANCE_CLEANED", T.DoubleType()),
+        T.StructField("RUNNING_BALANCE_FILLED", T.DoubleType()),
+        T.StructField("RUNNING_BALANCE_STATUS", T.StringType()),
+        T.StructField("RUNNING_BALANCE_CURRENCY", T.StringType()),
+        T.StructField("RUNNING_BALANCE_NORMALIZED", T.DoubleType()),
+        T.StructField("RUNNING_BALANCE_DISCREPANCY", T.DoubleType()),
         T.StructField("MERCHANT_NAME_CLEANED", T.StringType()),
         T.StructField("MERCHANT_CITY_CLEANED", T.StringType()),
         T.StructField("MERCHANT_COUNTRY_CLEANED", T.StringType()),
@@ -78,7 +82,15 @@ def frame_for(spark, rows, amount: float = 10.5):
             # observably dropping a time rather than trivially preserving one.
             dt.datetime(2024, 3, 16, 15, 9, 26),
             amount, ccy, "99.9999", ccy, "1.2345678901",
+            # Row 2 is the UNAVAILABLE case, and the pairing is not optional:
+            # the table's CHECK rejects a null balance under any other status
+            # and a stated one under this. The row exercises the constraint as
+            # much as it exercises the writer.
             None if seq == "2" else -1234.5,
+            "UNAVAILABLE" if seq == "2" else "OBSERVED",
+            None if seq == "2" else ccy,
+            None if seq == "2" else -1234.5,
+            None,
             "TEST MERCHANT", "BEIRUT", country, code, "PURCHASE", mcc,
             "A1B2C3", 4.25, 2.5, False,
         ))
@@ -131,7 +143,8 @@ def rows_for(database, job: str) -> list[tuple]:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"SELECT txn_id_cleaned, txn_seq, txn_amount_cleaned, "
-                f"       settle_date_cleaned, fx_rate, running_balance_cleaned "
+                f"       settle_date_cleaned, fx_rate, running_balance_filled, "
+                f"       running_balance_status "
                 f"  FROM {contract.TABLE} "
                 f" WHERE {contract.SYNC_JOB} = %s ORDER BY txn_id_cleaned",
                 (job,),
@@ -152,29 +165,32 @@ def test_a_batch_lands_with_its_types_converted(spark, database, job):
     rows = rows_for(database, job)
     assert len(rows) == len(ROWS)
 
-    key, seq, amount, settle, fx, balance = rows[0]
+    key, seq, amount, settle, fx, balance, status = rows[0]
     assert key == "test-row-0001"
     assert seq == 1, "TXN_SEQ arrived as text and must land as BIGINT"
     assert amount == Decimal("10.5000")
     assert settle == dt.date(2024, 3, 16), "the time part must not reach a DATE"
     assert fx == Decimal("1.2345678901"), "NUMERIC(20,10) must keep ten places"
     assert balance == Decimal("-1234.5000")
+    assert status == "OBSERVED", "the status must travel with the figure"
 
 
-def test_a_withheld_balance_stays_null(spark, database, job):
+def test_an_unavailable_balance_stays_null(spark, database, job):
     """
-    The balance stage states a figure only where it can prove one. That null
-    is the claim being made, and a writer that turned it into a zero would be
-    asserting a balance nobody verified.
+    The balance stage states a figure on every row it can reach an anchor
+    from. Where it cannot, the null is the claim being made -- and a writer
+    that turned it into a zero would be asserting a balance nobody has any
+    evidence for. The status beside it says which case this is.
     """
     from src.db import writer
 
     writer.write(frame_for(spark, ROWS), database, job)
 
     balances = {
-        key: balance for key, _, _, _, _, balance in rows_for(database, job)
+        key: (balance, status)
+        for key, _, _, _, _, balance, status in rows_for(database, job)
     }
-    assert balances["test-row-0002"] is None
+    assert balances["test-row-0002"] == (None, "UNAVAILABLE")
 
 
 def test_running_the_same_load_twice_changes_nothing(spark, database, job):

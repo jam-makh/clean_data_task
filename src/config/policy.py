@@ -56,9 +56,14 @@ class MissingPolicy:
 
 @dataclass(frozen=True)
 class BalancePolicy:
-    """How closely a stated running balance must account for its rows."""
+    """
+    How closely a stated running balance must account for its rows, and how
+    much evidence it takes to conclude the source changed which column moves
+    it.
+    """
 
     reconcile_tolerance: float
+    regime_switch_penalty: float
 
 
 @dataclass(frozen=True)
@@ -106,7 +111,8 @@ class Policy:
     :param validation: Required-column rules.
     :param codes: Code column widths.
     :param missing: Sentinel and repeat thresholds.
-    :param balance: Running-balance reconciliation tolerance.
+    :param balance: Running-balance reconciliation tolerance and the cost of
+        concluding the source changed which column moves the balance.
     :param duplicates: Business key definitions.
     :param output: Display formats applied on write.
     """
@@ -294,7 +300,10 @@ def parse(data: dict, path: Path = DEFAULT_PATH) -> Policy:
         balance=BalancePolicy(
             reconcile_tolerance=_positive(
                 balance, "reconcile_tolerance", "balance", path
-            )
+            ),
+            regime_switch_penalty=_positive(
+                balance, "regime_switch_penalty", "balance", path
+            ),
         ),
         duplicates=DuplicatesPolicy(
             business_keys=_business_keys(duplicates, path)

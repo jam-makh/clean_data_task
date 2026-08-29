@@ -3,7 +3,7 @@ Writing a cleaned Spark frame to Postgres, idempotently.
 
 The shape is: project, stage, merge.
 
-    project   the frame's 22 columns, cast to what the table holds, plus the
+    project   the frame's 24 columns, cast to what the table holds, plus the
               load's sync_job_id -- see src/db/contract.py
     stage     Spark bulk-loads that into an unlogged mirror table over JDBC
     merge     one INSERT ... ON CONFLICT moves the mirror into the live table

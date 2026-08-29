@@ -26,12 +26,71 @@ CREATE TABLE IF NOT EXISTS cleaned_transactions (
     billing_amount               NUMERIC(18, 4) NOT NULL,
     billing_currency             TEXT NOT NULL CHECK (billing_currency ~ '^[A-Z]{3}$'),
     fx_rate                      NUMERIC(20, 10) NOT NULL,
-    -- Nullable on purpose. The balance stage states a figure only where the
-    -- arithmetic proves it; roughly a third of rows have no anchor to count
-    -- from and are left null rather than repeating an unverified number. The
-    -- workbook renders those as the word UNKNOWN, which is a rendering
-    -- decision made by src/utils/io.py and never reaches this column.
-    running_balance_cleaned      NUMERIC(18, 4),
+    -- The reconstructed running balance. Nullable, but only just: the stage
+    -- states a figure on every row it can reach an anchor from, in either
+    -- direction, so this is null exactly where running_balance_status says
+    -- UNAVAILABLE -- no trusted balance anywhere in the account is reachable
+    -- from the row. The CHECK at the foot of this table enforces that pairing
+    -- rather than leaving it to the writer to remember.
+    --
+    -- It is NOT null merely because a value was unproven. An unproven figure
+    -- is published with a status that says so, because a null downstream is a
+    -- decision (drop it, or impute it) taken further from the evidence than
+    -- this pipeline is.
+    running_balance_filled       NUMERIC(18, 4),
+    -- How that figure was arrived at, and the column that makes the one above
+    -- safe to read. Constrained against the cleaner's vocabulary, in the order
+    -- src/cleaners/balance.py declares it -- strongest evidence first, so a
+    -- consumer's eligibility rule is a prefix of this list:
+    --
+    --   OBSERVED          stated by the source and confirmed by a neighbour
+    --   DERIVED           blank, and both bracketing anchors agree on it
+    --   FORWARD_DERIVED   counted forward from the last anchor; nothing after
+    --   BACKWARD_DERIVED  counted back from the first anchor; nothing before
+    --   UNVERIFIED        stated, with no reachable neighbour to test it
+    --   CONTRADICTED      the bracketing anchors disagree; see the
+    --                     discrepancy column for by how much
+    --   UNAVAILABLE       no reachable anchor at all; the only null balance
+    --
+    -- The CHECK is a whitelist rather than a comment because this column is
+    -- what every downstream consumer branches on. A typo introduced upstream
+    -- would otherwise arrive as a status nobody handles and be read as
+    -- "unrecognised, therefore probably fine".
+    -- NOT NULL is safe to declare here because this file reaches an existing
+    -- database only through `make db-reset`, which drops and rebuilds. See
+    -- src/db/migrate.py: `migrate` is CREATE TABLE IF NOT EXISTS and will not
+    -- alter a table it finds.
+    running_balance_status       TEXT NOT NULL CHECK (
+        running_balance_status IN (
+            'OBSERVED', 'DERIVED', 'FORWARD_DERIVED', 'BACKWARD_DERIVED',
+            'UNVERIFIED', 'CONTRADICTED', 'UNAVAILABLE'
+        )
+    ),
+    -- What currency that figure is in. NATIVE-regime rows carry TXN_CCY;
+    -- BILLING-regime rows carry the billing denomination, USD. Null exactly
+    -- where the balance is, because a withheld figure has no denomination.
+    -- Not derivable from TXN_CCY alone, which is why it is stored: the two
+    -- disagree on every row where the source changed which column moves the
+    -- balance.
+    running_balance_currency     TEXT,
+    -- The same balance valued in USD, so that anything aggregating across
+    -- accounts is adding comparable figures. Equal to running_balance_filled
+    -- wherever the currency is already USD -- at an effective rate of exactly
+    -- 1.0, asserted rather than read from fx_rate, which is not 1 on most USD
+    -- rows of this source. A point-in-time valuation at the row's own rate,
+    -- not a replay of the history that built the balance.
+    running_balance_normalized   NUMERIC(18, 4),
+    -- On a CONTRADICTED row, what the two reconstructions disagree by, signed
+    -- as backward minus forward. Adding it to running_balance_filled gives the
+    -- other direction's answer exactly, which is why it is signed and why one
+    -- column suffices where two balances would otherwise be needed. Null on
+    -- every other status: nowhere else are there two answers to differ.
+    --
+    -- The tolerance these were judged against is not a column. It is one
+    -- number for the whole run (policy.balance.reconcile_tolerance), recorded
+    -- with the rest of the run's configuration rather than repeated 265,195
+    -- times.
+    running_balance_discrepancy  NUMERIC(18, 4),
 
     -- Merchant Information
     merchant_name_cleaned        TEXT NOT NULL,
@@ -68,8 +127,26 @@ CREATE TABLE IF NOT EXISTS cleaned_transactions (
     -- when the transaction happened (txn_ts) and from which load carried it
     -- (sync_job_id). Three times, three columns: collapsing any two of them
     -- is the kind of thing that is discovered six months later.
-    cleaned_at                   TIMESTAMPTZ NOT NULL DEFAULT now()
+    cleaned_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- The balance invariant, enforced by the database rather than trusted to
+    -- the writer. Every row carries either a numeric balance with a status
+    -- explaining where it came from, or the single status that admits there
+    -- is no number -- and never one without the other. A row with a null
+    -- balance and a status of DERIVED, or a figure stamped UNAVAILABLE, is
+    -- incoherent whichever direction the mistake came from, so the constraint
+    -- is an equivalence and not an implication.
+    CONSTRAINT balance_stated_iff_available CHECK (
+        (running_balance_filled IS NULL)
+        = (running_balance_status = 'UNAVAILABLE')
+    ),
+    -- And the discrepancy exists exactly where two reconstructions did.
+    CONSTRAINT discrepancy_iff_contradicted CHECK (
+        (running_balance_discrepancy IS NOT NULL)
+        = (running_balance_status = 'CONTRADICTED')
+    )
 );
+
 
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_cleaned_txn_ts

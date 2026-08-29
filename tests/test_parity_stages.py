@@ -359,7 +359,7 @@ def test_balance(stage_parity):
 
     assert result.ok
     assert "RUNNING_BALANCE_STATUS" in result.compared
-    assert "RUNNING_BALANCE_ADJUSTED_STATUS" in result.compared
+    assert "RUNNING_BALANCE_DISCREPANCY" in result.compared
 
 
 @pytest.mark.spark

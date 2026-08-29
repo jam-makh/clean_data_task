@@ -63,7 +63,28 @@ COLUMNS: dict[str, str | None] = {
     "BILLING_AMOUNT": "decimal(18,4)",
     "BILLING_CURRENCY": None,
     "FX_RATE": "decimal(20,10)",
-    "RUNNING_BALANCE_CLEANED": "decimal(18,4)",
+    "RUNNING_BALANCE_FILLED": "decimal(18,4)",
+    # How that figure was arrived at, and the reason the column above is
+    # readable at all. It is persisted rather than left on the frame because
+    # the balance is stated on every row the arithmetic reaches, and without
+    # this a consumer cannot tell a figure two anchors agree on from one
+    # reconstructed in a single direction or one taken from inside a span the
+    # source contradicts. Constrained in sql/schema.sql against the same
+    # vocabulary the cleaner declares.
+    #
+    # Cast to string explicitly: the pandas frame holds this as a Categorical
+    # and Spark as a plain string, and an uncast Categorical is not something
+    # the JDBC writer has a type for.
+    "RUNNING_BALANCE_STATUS": "string",
+    # Text, not an enum: the set of currencies is a property of the extract,
+    # not of the schema, and a CHECK constraint here would reject a file that
+    # merely trades in one more currency than this one does.
+    "RUNNING_BALANCE_CURRENCY": None,
+    "RUNNING_BALANCE_NORMALIZED": "decimal(18,4)",
+    # On a CONTRADICTED row, backward reconstruction minus forward. Signed, so
+    # the reading the published column does not carry is recoverable exactly.
+    # Null on every other status -- there is only one answer to differ from.
+    "RUNNING_BALANCE_DISCREPANCY": "decimal(18,4)",
     "MERCHANT_NAME_CLEANED": None,
     "MERCHANT_CITY_CLEANED": None,
     "MERCHANT_COUNTRY_CLEANED": None,

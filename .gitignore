@@ -10,3 +10,7 @@ Stage2_Reproducible_Pipeline.pdf
 jars/
 presentation_script.md
 logs/
+scratch_brA.npy
+scratch_brB.npy
+scratch_cleaned.pkl
+scratch_resolve.pkl

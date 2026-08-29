@@ -25,7 +25,7 @@ SUPERSEDED = {
     # sheet says UNKNOWN there rather than repeating a figure that could not
     # be checked. What the source actually said is in `raw_transactions`,
     # which is where the unedited record belongs.
-    "RUNNING_BALANCE": "RUNNING_BALANCE_CLEANED",
+    "RUNNING_BALANCE": "RUNNING_BALANCE_FILLED",
     "MERCHANT_NAME": "MERCHANT_NAME_CLEANED",
     "MERCHANT_CITY": "MERCHANT_CITY_CLEANED",
     "MERCHANT_COUNTRY": "MERCHANT_COUNTRY_CLEANED",
@@ -117,14 +117,21 @@ INTERNAL = [
     # How far each value could be verified. SETTLE_DATE_STATUS also selects
     # the pending_settlement and anomaly_settlement sheets, which is done from
     # the full frame in `build_sheets` rather than from this view.
+    #
+    # RUNNING_BALANCE_STATUS is deliberately NOT here any more. It was
+    # internal while the balance column withheld a figure wherever it could
+    # not prove one -- a null was its own warning, and the status merely said
+    # which kind. Now that the column states a figure on every row it can, the
+    # status is the only thing separating a balance two anchors agree on from
+    # one reconstructed in a single direction. Dropping it would hand a
+    # consumer seven kinds of number spelled identically.
     "SETTLE_DATE_STATUS",
-    "RUNNING_BALANCE_STATUS",
-    # The second balance: what the balance would be if the account's own
-    # transactions were the only thing that moved it. A weaker claim than
-    # RUNNING_BALANCE_CLEANED makes, and two balance columns side by side
-    # invite a total computed from the wrong one.
-    "RUNNING_BALANCE_ADJUSTED",
-    "RUNNING_BALANCE_ADJUSTED_STATUS",
+    # Which column was found to move the balance here. A finding about the
+    # source rather than a figure, so it sits with the diagnostics: it is how
+    # a reader sees that the file changed convention, and where. The practical
+    # consequence -- what the balance is denominated in -- is already on
+    # RUNNING_BALANCE_CURRENCY, which is why this one stays internal.
+    "RUNNING_BALANCE_BASIS",
     # Verdicts on a column already on the row.
     "AUTH_CODE_VALID",
     "HAS_TERMINAL",
@@ -203,12 +210,14 @@ AUDIT_COLUMNS = [
     "TXN_AMOUNT_COERCION",
     "TXN_AMOUNT_SIGN",
     "PROCESSING_CODE_DIRECTION",
-    # What the arithmetic could and could not prove about the balance, and the
-    # second balance itself -- the projection that is stated wherever there is
-    # an anchor to count from, rather than only where it can be proven.
+    # What the arithmetic could and could not prove about the balance. The
+    # status and the discrepancy are audit columns AND published ones -- they
+    # are listed here because the audit view must carry them, and in
+    # PRESENTATION_ORDER because a consumer of the figure cannot read it
+    # without them. The chain-break flag stays audit-only: it is a property of
+    # the pair of rows rather than of the balance on either.
     "RUNNING_BALANCE_STATUS",
-    "RUNNING_BALANCE_ADJUSTED",
-    "RUNNING_BALANCE_ADJUSTED_STATUS",
+    "RUNNING_BALANCE_DISCREPANCY",
     "RUNNING_BALANCE_CHAIN_BREAK",
     # Identity: what collapsed into this row, and whether its key was shared.
     "EXACT_DUPLICATE_COPIES",
@@ -260,9 +269,26 @@ PRESENTATION_ORDER = [
     "BILLING_AMOUNT",
     "BILLING_CURRENCY",
     "FX_RATE",
-    # One balance, the one the arithmetic could verify. Where it could not,
-    # the cell says UNKNOWN rather than repeating a figure nobody checked.
-    "RUNNING_BALANCE_CLEANED",     # <- RUNNING_BALANCE
+    # The balance, how it was arrived at, what currency it is in, what it is
+    # worth in USD, and -- where the source's own anchors disagree -- by how
+    # much. The status sits immediately right of the figure because it is not
+    # optional reading: the column now states a balance wherever the
+    # arithmetic reaches one, and the status is the only thing that says
+    # whether that figure was proven, reconstructed from one side, or taken
+    # from inside a span the source cannot reconcile.
+    #
+    # Three columns rather than one because two questions have to be
+    # answerable at a glance: what does this account actually hold, and how
+    # does that compare with the account below it. The first needs the
+    # original denomination -- 10,000,000 LBP and 5,000 USD are not the same
+    # statement and neither is the useful one to hide -- and the second needs
+    # a single currency. The currency column sits between them so that
+    # neither figure can be read without it.
+    "RUNNING_BALANCE_FILLED",      # <- RUNNING_BALANCE
+    "RUNNING_BALANCE_STATUS",
+    "RUNNING_BALANCE_CURRENCY",
+    "RUNNING_BALANCE_NORMALIZED",
+    "RUNNING_BALANCE_DISCREPANCY",
     "MERCHANT_NAME_CLEANED",       # <- MERCHANT_NAME
     "MERCHANT_CITY_CLEANED",       # <- MERCHANT_CITY
     "MERCHANT_COUNTRY_CLEANED",    # <- MERCHANT_COUNTRY

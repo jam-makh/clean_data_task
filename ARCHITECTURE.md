@@ -376,26 +376,105 @@ forcing the column to text and breaking every sort and date calculation after
 it. The status column is the machine-readable half and says `MISSING`, not
 `UNKNOWN`, so it states what the source did rather than repeating the word in
 the cell beside it. The same treatment is applied to `running_balance` and to
-`running_balance_cleaned`, whose blanks go out as `UNKNOWN` for the same reason:
+`running_balance_filled`, whose blanks go out as `UNKNOWN` for the same reason:
 a withheld balance is a decision the pipeline took, not a cell nobody filled in,
 and `running_balance_status` beside it names which decision — `CONTRADICTED`,
 `UNVERIFIED` or `UNKNOWN`. Both stay real nulls inside the pipeline; only the
 rendered copy carries the word.
 
-### Two balance columns, and why they are not one
+### Detecting the balance regime
 
-`running_balance_cleaned` states a balance only where the arithmetic proves
-one, which leaves 80,808 rows blank. `running_balance_adjusted` answers a
-different, weaker question — *what would the balance be if this account's own
-transactions were the only thing that moved it?* — and answers it wherever
-there is a trusted balance to count from.
+The stage is never told which column moves the balance. It is given two
+candidates -- `TXN_AMOUNT_CLEANED` and `BILLING_AMOUNT` -- and works out which
+is in force on each row from the stated balances themselves.
 
-They are separate columns because they are separate claims. The first is
-evidence; the second is arithmetic. Merging them would let a projected figure
-be read as a proven one, which is the entire failure mode the balance step
-exists to prevent.
+Every pair of consecutive rows in an account where the source states a balance
+on both is a fact about one row's mover:
 
-Each row counts from the **nearest** trusted balance, not one anchor per
+```text
+delta            = balance[i] - balance[i-1]
+explains_native  = |delta - TXN_AMOUNT_CLEANED[i]| <= tolerance
+explains_billing = |delta - BILLING_AMOUNT[i]|     <= tolerance
+```
+
+On this extract that yields 126,015 pairs. A regime is a *run* of sequence
+numbers over which one mover keeps winning, so the answer is a segmentation of
+that evidence in sequence order rather than a majority vote over the file. It
+is computed as a two-state dynamic program: a row costs 1 if the mover it is
+labelled with fails to explain its step, changing label costs
+`regime_switch_penalty`, and the cheapest labelling wins.
+
+Run on this source, that finds the change at `TXN_SEQ` **188,470** — which is
+where it is, and which appears nowhere in the code or the config. Before the
+seam the native mover explains 99.6% of pairs and the billing mover 0.2%;
+after it, the billing mover explains 100.0%.
+
+The formulation is what makes the stage work on files this one says nothing
+about:
+
+- **No seam.** A single-convention file pays a switch penalty it can never
+  recoup and comes back one label throughout.
+- **Several seams.** Nothing in the cost function knows how many change points
+  to expect, so three come back as three.
+- **Coincidence.** An isolated row that only the other mover happens to
+  explain cannot open a regime of its own: a two-switch excursion has to save
+  more than twice the penalty to be worth taking. The stage is biased towards
+  reporting no change.
+
+**The seam needs no special case downstream, and that is not luck.** The
+running total is accumulated from whichever mover governs each row, so the
+difference between two cumulative totals is exactly the sum of the movers
+actually in force between them. Two stated balances either side of the change
+therefore still carry equal offsets and still reconcile. Before this was
+detected, the entire second half of the extract came back `CONTRADICTED`;
+after, that count is **2 rows**.
+
+The one part of this that is irreducibly sequential is the dynamic program --
+each row's cheapest label depends on the row before it. So `segment` lives in
+the pandas module and the Spark port *imports and calls the same function*,
+collecting the same small evidence projection to the driver and broadcasting
+the resulting change points back as a `when` chain on `TXN_SEQ`. Two
+implementations of a dynamic program would be two chances to disagree on a
+file where the seam is marginal, and the parity harness would end up comparing
+them rather than comparing the pipeline.
+
+### A tolerance of 0.02, and why not 0.01
+
+A running balance is reached by repeated addition of two-decimal figures, and
+the residue that leaves is not bounded by half a cent once a chain is long
+enough. The billing-regime chains reconcile on **87.8%** of adjacent pairs at
+0.01 and on **100.0%** at 0.02 — and the figure does not move again at 0.05,
+1.0 or 5.0.
+
+That plateau is the evidence. A real discrepancy would not sit in a band one
+cent wide; the rows between the two thresholds are rounding. The native regime
+holds flat at 99.6% across the whole sweep, so the looser tolerance buys
+nothing there and costs nothing either. Tightening it back to 0.01 would
+falsely reject roughly an eighth of a regime that is, in fact, exact.
+
+### One balance column, and why it is no longer two
+
+`running_balance_filled` states a figure on **every row the arithmetic can
+reach an anchor from, in either direction** — 265,195 of 265,195 on this
+extract. It used to state one only where the arithmetic could *prove* it,
+which left 6,625 rows null, and a second column `running_balance_adjusted`
+answered the weaker question beside it. The two have been merged.
+
+The merge is not a relaxation of the standard. The old design was right that a
+projected figure must never be readable as a proven one; it was wrong about
+where to enforce that. Withholding the value does not stop a consumer being
+wrong about it — it hands them a null, which a feature build must either drop
+or impute, and both of those are decisions taken further from the evidence
+than this pipeline is. Worse, the column that *did* carry the answer was
+marked internal and never reached Postgres, so the only consumer that mattered
+saw nulls and no explanation of them.
+
+So the figure is stated and the confidence travels with it, in
+`running_balance_status`, which is now a published column and not a diagnostic.
+Two balance columns invited a total computed from the wrong one. One balance
+column and a mandatory status does not.
+
+Each row counts from the **nearest trusted anchor**, not one anchor per
 account: anchoring each account at its first verified row reproduces the
 surviving later balances 43.6% of the time, and re-anchoring at the nearest one
 raises that to 67.9%. Rows before an account's first trusted balance count
@@ -403,22 +482,80 @@ backwards from it — the same arithmetic with the sign reversed. Neither
 direction crosses an unreadable amount, because a running total with a hole in
 it is short by an amount nobody can name.
 
-`running_balance_adjusted_status` says how far each value can be trusted:
+An anchor is a stated balance the arithmetic has **not disproved**. A stated
+balance two reachable neighbours refute is excluded from the anchor set
+entirely, not merely flagged: projecting from it would spread a known error
+across every row that counts from it, and those rows would look derived. A
+stated balance with no reachable neighbour is kept — untested is not
+disproved, and an account whose only balance is unconfirmed still has better
+evidence for that figure than for any alternative.
 
-| Status | Meaning |
-|---|---|
-| `VERIFIED` | the row already has a proven balance; this column repeats it |
-| `CONFIRMED` | projected, and a later trusted balance is reached exactly |
-| `CONTRADICTED` | projected, and a later trusted balance is **not** reached — the file is missing money that moved, and this figure is wrong by that amount |
-| `UNTESTED` | projected, with nothing after it to check against |
-| `NO_ANCHOR` | the account never had a trusted balance; no value |
+### The status vocabulary
 
-`CONTRADICTED` is not a defect in the projection. It is the projection working
-correctly and reporting that the transaction list is incomplete: on the
-accounts that can be checked, counting transactions forward misses the real
-balance on 92 of 153. The value is still stated, because a reader who asked for
-a balance everywhere should get one — but it is labelled, so nobody has to
-discover the problem by being wrong about it later.
+Declared in `src/cleaners/balance.py` and constrained in `sql/schema.sql`
+against the same list, strongest evidence first — so a consumer's eligibility
+rule is a *prefix* of this table rather than a set of names to remember.
+
+| Status | Meaning | Rows |
+|---|---|---:|
+| `OBSERVED` | the source stated it and a neighbouring stated balance confirms the arithmetic between them | 172,338 |
+| `DERIVED` | the source left it blank and the trusted anchors either side agree on what it must be | 86,232 |
+| `FORWARD_DERIVED` | counted forward from the last trusted anchor; nothing after it to check against | 205 |
+| `BACKWARD_DERIVED` | counted back from the first trusted anchor; nothing before it to check against | 3,268 |
+| `UNVERIFIED` | stated by the source, with no reachable neighbour to test it | 0 |
+| `CONTRADICTED` | the trusted anchors bracketing this row **disagree** — the file is missing money that moved | 3,152 |
+| `UNAVAILABLE` | no reachable anchor in either direction; the only status with a null balance | 0 |
+
+`PROVEN` — `OBSERVED` and `DERIVED` — is the pair the arithmetic actually
+established, 258,570 rows or **97.5%**. It is a named constant rather than a
+condition spelled out at each use, because the invariant test, the report and
+every downstream consumer must ask the question identically.
+
+### `CONTRADICTED`, and why it still carries a number
+
+It is not a defect in the reconstruction. It is the reconstruction working
+correctly and reporting that the transaction list is incomplete: two anchors
+each check out against their own neighbours, and the movements between them do
+not account for the step from one to the other. Money moved that the file does
+not record as a transaction.
+
+Both answers are kept. `running_balance_filled` carries the forward one — or
+the source's own figure, where the source stated one, because a stated balance
+is an observation even when the rows around it refuse to agree with it. The
+signed `running_balance_discrepancy` carries the rest: **add it to the
+published figure and you have the backward answer exactly.** One column rather
+than two more balance columns, and signed rather than absolute, for precisely
+that reason.
+
+The spread is the reason no single number summarises this and the report does
+not try to. Across the 3,152 rows on 190 accounts, the disagreement runs from
+0.02 — one tolerance-width, i.e. rounding — to **9.16 billion**, with a median
+of 2,985. A file can hold both a cent of noise and a nine-figure hole, and an
+aggregate over the two answers nothing.
+
+### The invariant
+
+```
+Every cleaned transaction carries either
+  a numeric running balance and a status explaining its provenance,
+or
+  the status UNAVAILABLE and no number.
+Never one without the other.
+```
+
+Enforced in three places, deliberately: `CONSTRAINT
+balance_stated_iff_available` in the table, a test in `tests/test_balance.py`,
+and the `balance.stated` / `balance.unavailable` / `balance.proven` counts in
+every run's own report. Each is stated as an **equivalence** and not an
+implication — a null balance beside a status claiming provenance and a figure
+stamped `UNAVAILABLE` are both incoherent, and checking one direction would
+catch only one of them.
+
+On this extract `UNAVAILABLE` is 0, so the persisted balance column has **no
+nulls at all**. That is a property of the data, not a guarantee of the design:
+every one of the 355 accounts happens to state at least 25 balances, and an
+account that stated none would be `UNAVAILABLE` throughout rather than
+silently zero.
 
 ### Auth codes: why any repeat is suspicious
 

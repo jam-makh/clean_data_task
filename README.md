@@ -221,7 +221,7 @@ stage as it runs, and prints the batch's audit trail before it writes:
 |       macro         INTEREST_RATE_INDEX.recovered = 1
 |       duplicates    exact_duplicates_dropped = 0
 |       codes         processing_type.disagrees_with_code = 3
-|       balance       adjusted[NO_ANCHOR] = 3
+|       balance       balance.unavailable = 3
 |       mcc           confidence[HIGH] = 3
 |       consistency   CODE_TYPE_MISMATCH = 3
 |       pipeline      output_rows = 3
@@ -286,15 +286,76 @@ Every *why* behind the above — the all-TEXT landing table, the id-only message
 the commit ordering, the failure policy, the thread count — is in
 [The streaming path](ARCHITECTURE.md#the-streaming-path).
 
+### The five balance columns
+
+The `balance` stage publishes five columns rather than one, because a single
+column cannot answer the questions a reader has: *what is the balance*, *how
+much is that figure worth trusting*, *in what currency*, and — where the
+source's own anchors disagree — *by how much*.
+
+| Column | What it is |
+| --- | --- |
+| `running_balance_filled` | The reconstructed balance, in the denomination the ledger actually used. Null only where the status says `UNAVAILABLE` |
+| `running_balance_status` | How that figure was arrived at, and how far it can be trusted |
+| `running_balance_currency` | Which denomination that is |
+| `running_balance_normalized` | The same balance valued in USD |
+| `running_balance_discrepancy` | On a `CONTRADICTED` row, the signed gap between the forward and backward reconstructions. Null elsewhere |
+
+`running_balance_status` is not optional reading. The balance column states a
+figure wherever the arithmetic reaches an anchor — 265,195 of 265,195 rows on
+this extract — so the status is the only thing separating a figure two
+independent claims agree on (`OBSERVED`, `DERIVED`: 97.5% of rows) from one
+reconstructed in a single direction (`FORWARD_DERIVED`, `BACKWARD_DERIVED`) and
+from one standing inside a span the source contradicts (`CONTRADICTED`). The
+full vocabulary and the reasoning are in [One balance column, and why it is no
+longer two](ARCHITECTURE.md#one-balance-column-and-why-it-is-no-longer-two).
+
+They are three columns because this source keeps its books two ways. For its
+first 188,469 rows the stated balance moves by `TXN_AMOUNT_CLEANED`, in the
+account's own currency; from row 188,470 on it moves by `BILLING_AMOUNT`, in
+USD. So `running_balance_filled` is denominated in LBP on one row and USD on
+another, and `running_balance_currency` is the only thing that says which --
+`10,000,000 LBP` and `5,000 USD` are both true statements and neither is safe
+to read without its unit.
+
+`running_balance_normalized` is what downstream work aggregates: one currency,
+so summing across accounts is meaningful. A balance already in USD normalizes
+to itself at an effective rate of exactly `1.0`. That is asserted from the
+currency, not read from `fx_rate` -- which is **not** 1 on most USD rows of
+this source, and would restate 100 dollars as 100.44. The raw `fx_rate` column
+is read and never written; the effective rate is a separate thing that exists
+only inside the normalization.
+
+The valuation is point-in-time. The rate belongs to the transaction on that
+row, while the balance accumulated over many rows at many rates, so the column
+answers *what is this balance worth now* rather than *what was each historical
+movement worth when it happened*. On the USD accounts that is 73% of rows and
+the distinction is immaterial; on ARS, which moved roughly fifteenfold across
+the window, it is not, and a monthly close built on it should be read as a
+valuation rather than as a reconstruction.
+
+**Nothing configures where the convention changes.** The stage is given both
+candidate movers and works out which is in force on each row from the stated
+balances themselves -- see [Detecting the balance
+regime](ARCHITECTURE.md#detecting-the-balance-regime). A row number in a config
+file is a fact about one extract, and the next one would carry it silently
+into a file it does not describe.
+
 ### Known limitation: the running balance
 
 The `balance` stage chains a running balance per account in sequence order. A
-single row usually has no earlier transaction on its account to count from, so
-the stage states no figure and `running_balance_cleaned` is `NULL` — which the
-schema permits, and which the log says out loud as `adjusted[NO_ANCHOR]`. A
-zero would be a number nobody verified. Seeding the anchor from
-`cleaned_transactions` is possible — `idx_cleaned_account_seq` is in the schema
-for exactly that lookup — and is deliberately not done yet.
+single streamed row has no other transaction on its account to count from in
+either direction, so the stage reaches no anchor, states no figure, and
+`running_balance_filled` is `NULL` under the status `UNAVAILABLE` — which the
+schema permits and which the log says out loud as `balance.unavailable`. A
+zero would be a number nobody has any evidence for.
+
+This is the one case where a batch run and a streamed run of the same row
+disagree, and it is a property of the batch, not of the row: in a full load
+that row's account brings its own history and the balance is reconstructed
+normally. Seeding the anchor from `cleaned_transactions` is possible —
+`idx_cleaned_account_seq` is in the schema for exactly that lookup — and is
+deliberately not done yet.
 
 ### A note on speed
 
@@ -404,7 +465,7 @@ arrived over Kafka, and no stage can tell which it is looking at.
 | 3 | `duplicates` | Deduplication | Drops identical rows; sequences `TXN_ID` collisions | [Stage 2](ARCHITECTURE.md#stage-2-duplicates) |
 | 4 | `codes` | Normalization | Restores leading zeros; regenerates labels from a lookup | [Stage 3](ARCHITECTURE.md#stage-3-codes) |
 | 5 | `amounts` | Normalization | Parses text amounts to float and signs them by transaction type | [Stage 4](ARCHITECTURE.md#stage-4-amounts) |
-| 6 | `balance` | Derivation | Fills the running balance where the arithmetic proves it, and withholds it everywhere else | [`balance.py`](src/spark/cleaners/balance.py) |
+| 6 | `balance` | Derivation | Reconstructs the running balance in both directions and states how far each figure is proven | [`balance.py`](src/spark/cleaners/balance.py) |
 | 7 | `missing` | Normalization | Separates absent, unreadable and not-applicable | [Stage 5](ARCHITECTURE.md#stage-5-missing-values) |
 | 8 | `merchant` | Enrichment | Cleans names, then resolves them against a curated master | [Stage 6](ARCHITECTURE.md#stage-6-merchants) |
 | 9 | `geo` | Enrichment | Collapses city variants; checks the country each implies | [Stage 7](ARCHITECTURE.md#stage-7-cities) |
@@ -653,11 +714,11 @@ the second terminal wake up and clean it.
 #### 6. Look at what came out
 
 ```bash
-docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select txn_id_cleaned, txn_ts, txn_amount_cleaned, txn_ccy, merchant_name_cleaned, running_balance_cleaned, sync_job_id, cleaned_at from cleaned_transactions order by cleaned_at desc limit 3;"
+docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select txn_id_cleaned, txn_ts, txn_amount_cleaned, txn_ccy, merchant_name_cleaned, running_balance_filled, running_balance_currency, running_balance_normalized, sync_job_id, cleaned_at from cleaned_transactions order by cleaned_at desc limit 3;"
 ```
 
 The same transactions, typed and constrained: timestamps parsed, amounts
-numeric, merchants normalised. `running_balance_cleaned` may be null -- the
+numeric, merchants normalised. `running_balance_filled` may be null -- the
 balance stage states a figure only where the arithmetic proves it, rather than
 repeating an unverified number.
 
@@ -674,11 +735,13 @@ The claim worth proving properly: at-least-once delivery is fine because the
 write is idempotent.
 
 ```bash
-docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select count(*) rows, count(distinct txn_id_cleaned) keys, sum(txn_amount_cleaned) total, md5(string_agg(txn_id_cleaned || ':' || txn_amount_cleaned, ',' order by txn_id_cleaned)) fingerprint from cleaned_transactions;"
+make fingerprint
 ```
 
-Takes a fingerprint of the whole table -- one value that changes if any row's
-key or amount does.
+Prints one line describing the whole table: row count, distinct keys, the
+amount total, how many loads contributed, the last write time and a digest over
+every key and amount. Everything but `last write` is expected to survive a
+replay.
 
 ```bash
 make emit ID=42
@@ -688,18 +751,14 @@ Replays the identical event. Run it two or three times: the consumer re-runs
 the full cleaning each time, so nothing is being skipped by a duplicate check.
 
 ```bash
-docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select count(*) rows, count(distinct txn_id_cleaned) keys, sum(txn_amount_cleaned) total, md5(string_agg(txn_id_cleaned || ':' || txn_amount_cleaned, ',' order by txn_id_cleaned)) fingerprint from cleaned_transactions;"
+make fingerprint
 ```
 
-The same query again: row count, key count, total and fingerprint all
-unchanged.
+The same command again. `rows`, `keys`, `total`, `loads` and `digest` are all
+unchanged -- only `last write` has moved, which is the proof the pipeline
+really did write again rather than skipping the row.
 
-```bash
-docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select txn_id_cleaned, txn_amount_cleaned, sync_job_id, cleaned_at from cleaned_transactions order by cleaned_at desc limit 3;"
-```
-
-What *did* move: `cleaned_at` is newer and `sync_job_id` names the most recent
-run. The data is identical, the provenance is current. The mechanism is the
+The mechanism is the
 `INSERT ... SELECT DISTINCT ON (txn_id_cleaned) ... ON CONFLICT DO UPDATE` in
 `src/db/contract.py` -- `DISTINCT ON` because `ON CONFLICT` raises if one
 statement touches a key twice, and `cleaned_at = now()` sits outside `EXCLUDED`

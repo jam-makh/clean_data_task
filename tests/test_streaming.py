@@ -241,7 +241,7 @@ def cleaned_row(database, txn_id):
             cursor.execute(
                 "SELECT merchant_name_cleaned, merchant_city_cleaned, "
                 "       settle_date_cleaned, txn_amount_cleaned, "
-                "       running_balance_cleaned, sync_job_id, txn_ts "
+                "       running_balance_filled, sync_job_id, txn_ts "
                 "  FROM cleaned_transactions WHERE txn_id_cleaned = %s",
                 (txn_id,),
             )
