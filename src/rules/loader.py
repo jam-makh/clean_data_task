@@ -207,3 +207,63 @@ def merchant_aliases() -> dict[str, str]:
                 )
             flat[alias] = canonical
     return flat
+
+
+def spend_eligible_codes() -> dict[str, bool]:
+    """
+    :returns: Processing code to whether it counts as spending. A code absent
+        from the map is not spending, which is the safe direction: a new code
+        nobody has classified must not silently enter a category total.
+    """
+    return {
+        str(code): bool(flag)
+        for code, flag in load("spending_categories")["spend_eligible"].items()
+    }
+
+
+def spending_categories() -> list[dict]:
+    """
+    :returns: The closed set of Stage 3 spending categories, in display order,
+        each with its ``display_order`` and ``is_residual`` flag.
+    :raises ValueError: If the file does not declare exactly one residual,
+        which would leave an unmapped MCC with nowhere to go or two places.
+    """
+    rows = sorted(
+        load("spending_categories")["categories"],
+        key=lambda row: row["display_order"],
+    )
+    residuals = [row["category"] for row in rows if row["is_residual"]]
+    if len(residuals) != 1:
+        raise ValueError(
+            f"exactly one spending category must be the residual, "
+            f"found {len(residuals)}: {residuals}"
+        )
+    return rows
+
+
+def residual_spending_category() -> str:
+    """:returns: The category an MCC with no mapping falls into."""
+    return next(
+        row["category"] for row in spending_categories() if row["is_residual"]
+    )
+
+
+def mcc_categories() -> dict[str, str]:
+    """
+    :returns: MCC code to spending category.
+    :raises ValueError: If a mapping names a category the vocabulary does not
+        declare, which would produce a feature column nothing asked for.
+    """
+    declared = {row["category"] for row in spending_categories()}
+    mapping = {
+        str(mcc): str(category)
+        for mcc, category in load("spending_categories")[
+            "mcc_categories"
+        ].items()
+    }
+    unknown = sorted(set(mapping.values()) - declared)
+    if unknown:
+        raise ValueError(
+            f"mcc_categories names undeclared categories: {unknown}"
+        )
+    return mapping

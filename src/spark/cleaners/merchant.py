@@ -21,20 +21,27 @@ recursively. The first of those three is a lookup and is done as a broadcast
 join, which is the honest shape for it: a 2,100-row master against 265,195
 transactions, sent to the executors rather than shuffling the transactions.
 
-The other two are genuinely fuzzy and are done in a ``pandas_udf`` over the
-rows the join missed. Three things make that the right call rather than a
-retreat:
+The other two are genuinely fuzzy, and they are still joins.
 
-* it is the *same* Python function the pandas pipeline runs, so the two
-  cannot disagree about a prefix -- parity here is by construction, not by
-  testing;
-* a ``pandas_udf`` moves a whole Arrow batch across the JVM boundary and
-  hands it to Python as one Series, where a plain ``udf`` serialises one row
-  at a time and pays the round trip 265,195 times. On this stage that is the
-  difference between seconds and minutes, for identical output;
-* it runs on a fraction of the rows. Names the exact join resolved are
-  passed in as null and returned immediately, so the fuzzy path costs what
-  the fuzzy cases cost.
+The fuzzy rule is a prefix rule: a truncated name identifies a merchant when
+exactly one entry in the master extends it. Which prefixes satisfy that is a
+property of the master alone -- 2,100 entries, known before a single
+transaction is read -- so it is resolved once on the driver into a flat
+``prefix -> identity`` map, and the executors do an equality join against it
+like every other rule lookup in this pipeline.
+
+That is the whole trick, and it is worth stating why it beats the obvious
+alternatives. A UDF would ship a Python function to every task and pay a
+serialisation boundary per batch. A non-equi join on ``LIKE key || '%'``
+would be a broadcast nested loop -- 2,100 comparisons per row. Expanding the
+*master* into its prefixes instead turns the same question into an equality
+join on a table of roughly 25,000 rows, which broadcasts, and the row side
+never leaves the JVM.
+
+The truncation fallback -- a name cut mid-way through a trailing
+``-CARD PMT-`` suffix -- is the same lookup applied to successively trimmed
+spellings, and ``coalesce`` over those attempts in order is the recursion the
+original expressed with a recursive call.
 
 What this stage does not build is the ``merchant_review`` queue. That is a
 second frame rather than a column, its shape belongs to the sheet writer, and
@@ -42,11 +49,9 @@ the parity harness compares frames -- so it is Phase 06's, with the rest of
 the output side.
 """
 
-import pandas as pd
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType
 
-from src.cleaners.merchant import (
+from src.schema.merchant import (
     AFFIXES,
     ALNUM_REF,
     BRANCH,
@@ -54,12 +59,14 @@ from src.cleaners.merchant import (
     INTERNAL,
     LEGAL,
     MERCHANT,
+    MIN_PREFIX,
     NOT_A_MERCHANT,
     PENDING,
     PUNCT,
     REF_SUFFIX,
     STAR_REF,
     TRAILING_BRANCH,
+    TRUNCATED_TAIL,
     UNIDENTIFIED,
     UNKNOWN_PROCESSOR,
     URL_SUFFIX,
@@ -163,43 +170,86 @@ def clean(value):
     )
 
 
-def _fuzzy(known: dict[str, str]):
+# How many times the truncated-suffix trim is retried. See _resolved.
+TRIM_PASSES = 3
+
+
+def _prefixes(index: dict[str, str]) -> dict[str, str]:
     """
-    Builds the Arrow-batched fallback for one index.
+    Every prefix that identifies exactly one thing, resolved on the driver.
+
+    ``MerchantCleaner._resolver`` answers "does this key prefix exactly one
+    identity" per lookup, by scanning a sorted index. The answer depends only
+    on the master, so it is computed once here for every prefix the master
+    admits, and the per-row question becomes a dictionary hit.
+
+    Ambiguity is counted over identities, not spellings: AMERICAN UNIVERSITY
+    and AMERICAN UNIVERSITY BEIRUT are two spellings of one merchant, and a
+    prefix reaching both has identified it. A prefix reaching two different
+    merchants identifies neither and is left out -- which is also what makes
+    trap_pairs.json hold: a never-merge group has two identities by
+    definition, so no prefix into it survives.
+
+    :param index: Key to identity, as ``_index`` built it.
+    :returns: Prefix to the single identity it names. Prefixes shorter than
+        ``MIN_PREFIX`` are absent: four characters is the floor at which a
+        fragment is evidence at all.
+    """
+    found: dict[str, set] = {}
+    for key, identity in index.items():
+        for length in range(MIN_PREFIX, len(key) + 1):
+            found.setdefault(key[:length], set()).add(identity)
+
+    return {
+        prefix: identities.pop()
+        for prefix, identities in found.items()
+        if len(identities) == 1
+    }
+
+
+def _lookup(known: dict[str, str]) -> dict[str, str]:
+    """
+    The one table both passes of the resolver read.
+
+    Exact spellings are merged over the prefixes rather than joined
+    separately, because an exact hit outranks a prefix hit and a later key
+    wins the merge. One dictionary means one join per spelling attempted
+    instead of two.
 
     :param known: Any spelling to what it identifies.
-    :returns: A ``pandas_udf`` taking cleaned names and returning what each
-        identifies, or ``""``. A null name -- which is how the caller says
-        "already resolved, do not bother" -- returns ``""`` without a lookup.
-
-    The resolver is the pandas pipeline's own, closed over here and shipped
-    with the task. Rebuilding it per batch would sort a 2,100-entry index
-    once per Arrow batch rather than once per task, so it is built when the
-    UDF is defined -- on the driver, which is also what makes the rule file a
-    driver-side read rather than something every executor has to find.
+    :returns: Key to identity, covering exact spellings and unambiguous
+        prefixes.
     """
-    resolve = MerchantCleaner._resolver(known)
+    index = _index(known)
+    lookup = {**_prefixes(index), **index}
+    # A name with no letters or digits identifies nothing. The original
+    # returns "" for it before consulting the index at all, so an entry in
+    # the master that happened to reduce to an empty key must not answer for
+    # every punctuation-only name in the source.
+    lookup.pop("", None)
+    return lookup
 
-    @F.pandas_udf(StringType())
-    def resolver(names: pd.Series) -> pd.Series:
-        # ``name is None`` alone is not the null test. Arrow hands a null back
-        # as a float NaN rather than as None, so a row the exact join already
-        # answered -- which is passed in as null precisely to skip it --
-        # reached ``resolve`` as a float and died on ``.upper()``. The
-        # ``value != value`` half is the same test ``clean_one`` uses on the
-        # pandas side, for the same reason.
-        return names.map(
-            lambda name: ""
-            if name is None or name != name
-            else resolve(name)
-        )
 
-    return resolver
+def _trimmed(name):
+    """
+    :param name: The cleaned-name column.
+    :returns: The same name with one trailing fragment of a truncated
+        ``CARD PMT`` suffix removed, and surrounding space stripped.
+    """
+    return F.trim(F.regexp_replace(name, TRUNCATED_TAIL.pattern, ""))
 
 
 def _resolved(frame, name, known: dict[str, str], column: str):
     """
-    Resolves a cleaned name against one index: exact by join, the rest by UDF.
+    Resolves a cleaned name against one index, entirely in Spark.
+
+    One broadcast join per spelling attempted, and ``coalesce`` picks the
+    first that answered. The order is the original's: the full name, then the
+    same name with one truncated suffix fragment trimmed, and so on. Trimming
+    is bounded rather than recursive because the suffix pattern removes one
+    trailing token per pass and the longest chain the vocabulary admits is
+    two -- ``FOO CARD C`` losing ``C`` then ``CARD``. A third pass is carried
+    for margin and costs a join over a table that is already broadcast.
 
     :param frame: The frame.
     :param name: The cleaned-name column.
@@ -208,24 +258,23 @@ def _resolved(frame, name, known: dict[str, str], column: str):
     :returns: The frame with ``column`` added, holding what the name
         identifies or ``""``.
     """
-    exact = f"_merchant_exact_{column}"
-    key = F.regexp_replace(F.upper(name), r"[^A-Z0-9]", "")
-    frame = rule_tables.joined(frame, key, _index(known), exact, "string")
+    lookup = _lookup(known)
+    scratches = []
+    spelling = name
 
-    # Only the misses reach Python. The join has already answered for every
-    # name spelled a way the master knows, which on this source is most rows
-    # and all of the common merchants.
-    return frame.withColumn(
-        column,
-        F.coalesce(
-            F.col(exact),
-            _fuzzy(known)(
-                F.when(F.col(exact).isNull(), name).otherwise(
-                    F.lit(None).cast("string")
-                )
-            ),
-        ),
-    ).drop(exact)
+    for attempt in range(TRIM_PASSES + 1):
+        scratch = f"_merchant_try{attempt}_{column}"
+        key = F.regexp_replace(F.upper(spelling), r"[^A-Z0-9]", "")
+        frame = rule_tables.joined(frame, key, lookup, scratch, "string")
+        scratches.append(scratch)
+        spelling = _trimmed(spelling)
+
+    # An empty string, never null: the caller reads this as "nothing
+    # identified", which is what the pandas resolver returned too.
+    frame = frame.withColumn(
+        column, F.coalesce(*[F.col(s) for s in scratches], F.lit(""))
+    )
+    return frame.drop(*scratches)
 
 
 def apply(frame, policy):

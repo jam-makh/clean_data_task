@@ -6,27 +6,21 @@ The manual emitter: tells the consumer that a row arrived.
     python -m scripts.dummy_producer --pending
     python -m scripts.dummy_producer --id 42 --dry-run
 
-Dummy in the sense that nothing here decides *when* to emit -- a person does,
-by running it. In a real deployment this event would come from whatever writes
-to ``raw_transactions``: a trigger, an outbox poller, a CDC reader on the
-write-ahead log. All three produce exactly the message this script produces,
+Dummy in the sense that nothing here decides when to emit (a person does,
+by running it). All three produce exactly the message this script produces,
 which is the point -- the consumer cannot tell the difference, so replacing
 this with a real emitter later changes nothing downstream.
 
 What it is NOT is a second way to run the pipeline. It publishes an id and
 exits. Whether anything happens next depends entirely on whether a consumer is
-listening, and if none is, the message waits on the topic until one is --
-which is worth seeing at least once, because it is the property that makes
-this a queue rather than a function call.
+listening, and if none is, the message waits on the topic until one is.
 
-``--pending`` emits every row still at ``status = 'PENDING'`` -- rows that
+NOTES:
+1. --pending emits every row still at ``status = 'PENDING'`` -- rows that
 were never attempted, because the consumer was down when they landed. It is
 safe to run repeatedly: the id is derived, the write is an upsert, and a row
 cleaned twice is a row cleaned once -- see ``src/jobs.py``.
-
-It does **not** pick up FAILED rows. That is deliberate rather than an
-oversight: "never attempted" and "attempted and broke" are the distinction the
-status column exists to make, and a bulk re-emit of failures whose cause is
+2. It does not pick up FAILED rows and a bulk re-emit of failures whose cause is
 still unfixed would simply fail them all again. To retry one once you have
 fixed the cause, pass its id to ``--ids``; ``last_error`` in
 ``raw_transactions`` says which ids those are and why.

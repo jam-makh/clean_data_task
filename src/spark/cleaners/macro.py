@@ -24,7 +24,7 @@ clothes and would contradict the 236,045 values the file already gives.
 
 from pyspark.sql import functions as F
 
-from src.cleaners.macro import COVERAGE, SERIES, TRUTHY
+from src.schema.macro import COVERAGE, SERIES, TRUTHY
 from src.rules import loader
 from src.spark import audit
 from src.spark import spark_utils as rule_tables

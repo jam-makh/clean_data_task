@@ -27,7 +27,7 @@ import numpy as np
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from src.cleaners.balance import (
+from src.schema.balance import (
     BASES,
     BASIS,
     BILLING,

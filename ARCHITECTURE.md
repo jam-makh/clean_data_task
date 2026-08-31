@@ -26,7 +26,7 @@ never drift.
 - [Five rules that apply everywhere](#five-rules-that-apply-everywhere)
 - [Adding a stage](#adding-a-stage)
 - [Adding a rule file](#adding-a-rule-file)
-- [The parity harness](#the-parity-harness)
+- [The Spark layer](#the-spark-layer)
 
 ---
 
@@ -431,12 +431,11 @@ after, that count is **2 rows**.
 
 The one part of this that is irreducibly sequential is the dynamic program --
 each row's cheapest label depends on the row before it. So `segment` lives in
-the pandas module and the Spark port *imports and calls the same function*,
-collecting the same small evidence projection to the driver and broadcasting
-the resulting change points back as a `when` chain on `TXN_SEQ`. Two
-implementations of a dynamic program would be two chances to disagree on a
-file where the seam is marginal, and the parity harness would end up comparing
-them rather than comparing the pipeline.
+`src/schema/balance.py` and the Spark stage calls it, collecting the small
+evidence projection to the driver and broadcasting the resulting change points
+back as a `when` chain on `TXN_SEQ`. It is the same function the pandas
+original ran, unchanged, which is why the port never had to argue about where
+the seam falls on a file where it is marginal.
 
 ### A tolerance of 0.02, and why not 0.01
 
@@ -492,7 +491,7 @@ evidence for that figure than for any alternative.
 
 ### The status vocabulary
 
-Declared in `src/cleaners/balance.py` and constrained in `sql/schema.sql`
+Declared in `src/schema/balance.py` and constrained in `sql/schema.sql`
 against the same list, strongest evidence first — so a consumer's eligibility
 rule is a *prefix* of this table rather than a set of names to remember.
 
@@ -1224,21 +1223,34 @@ rather than silently do nothing.
 
 ---
 
-## The parity harness
+## The Spark layer
 
-The cleaning stages are being ported to Spark. The harness is what makes that
-survivable: after every stage, a machine checks that the two engines give the
-same answer, on a sample chosen for the cases the stages actually get wrong.
+The cleaning stages were ported to Spark from a pandas original, and a parity
+harness is what made that survivable: after every stage, a machine checked
+that the two engines gave the same answer, on a sample chosen for the cases
+the stages actually get wrong.
 
-Four modules under `src/spark/`, none of which cleans anything:
+That harness has been removed, and it is worth being precise about why rather
+than quietly dropping the section. It passed on all eleven stages of the
+`forecast_balance` profile. At that point the pandas half existed only to be
+compared against — a second full implementation of every cleaning rule, kept
+so that a test could confirm it agreed with the first. That is a maintenance
+cost with no remaining benefit, so the pandas modules and the harness went
+together.
+
+What did not go is the vocabulary the two shared. `src/schema/` holds the
+column names, the status values and the handful of pure functions both engines
+read, lifted out of the reviewed pandas modules with every surviving line
+unchanged. The Spark stages import from it.
+
+The modules below decide nothing about cleaning:
 
 | Module | Answers |
 |---|---|
-| `session.py` | how a `SparkSession` is configured, everywhere |
-| `source.py` | how a delimited file is read, deciding nothing |
-| `sample.py` | which rows the harness runs on |
-| `parity.py` | whether two frames say the same thing |
-| `pipeline.py` | which stages are ported, and in what order they run |
+| `src/spark/spark_setup.py` | how a `SparkSession` is configured, everywhere |
+| `src/spark/pipeline.py` | which stages run, and in what order |
+| `src/spark/audit.py` | how a run's totals are counted, in two passes |
+| `tests/harness/sample.py` | which rows the tests run on |
 
 ### The session states its semantics rather than inheriting them
 
@@ -1328,15 +1340,10 @@ is registered — a prefix and not a filter, because the stages are not
 independent: `amounts` signs by what `codes` resolved, `balance` moves by what
 `amounts` parsed.
 
-`tests/test_parity.py` runs that prefix through both engines and compares. It
-is never edited as the port proceeds: a stage becomes tested by being
-registered, and registering one that is not finished turns its parity test red
-immediately, which is the intended direction.
-
-With the registry empty it compares the two readers — which is not a vacuous
-assertion. It says that 11,417 rows and 22 columns of a genuinely dirty
-extract arrive identically through two entirely different readers, including
-which cells are null and which are the empty string.
+The registry is still the ledger of what runs, and `ported()` is still what a
+profile is resolved through — `transactions_v4` opens with `dates`, which has
+no Spark implementation and is not getting one, so asking the registry what it
+can do is the honest way to resolve a profile rather than assuming all of it.
 
 ---
 

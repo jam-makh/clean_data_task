@@ -29,7 +29,7 @@ the source wrote it.
 
 from pyspark.sql import functions as F
 
-from src.cleaners.amounts import (
+from src.schema.amounts import (
     ABSENT,
     AMOUNT_COLUMNS,
     AS_STATED,

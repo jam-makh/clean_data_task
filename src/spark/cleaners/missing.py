@@ -22,7 +22,7 @@ about what an all-zero terminal ID is.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from src.cleaners.missing import (
+from src.schema.missing import (
     AUTH_SENTINEL,
     REPEATED,
     TERMINAL_SENTINEL,

@@ -1,0 +1,60 @@
+# Feature-build settings
+
+balance:
+  # Which running-balance statuses may supply an account's month-end balance,
+  # named from the vocabulary sql/schema.sql declares.
+  #
+  # CONTRADICTED is excluded because the two reconstructions of that row
+  # disagree and the published figure is one of two answers, not the answer.
+  # UNAVAILABLE is excluded because it is the one status with no number at
+  # all. Everything else is admitted: a figure reconstructed in one direction
+  # is weaker evidence than one two anchors agree on, but it is evidence.
+  #
+  # This is the largest single judgement in Stage 3 -- CONTRADICTED is ~48.5k
+  # of 265k rows in the extract -- so it is a list here rather than a constant
+  # in balances.py, and the run report counts exactly what it cost under
+  # `balance_quality`.
+  eligible_statuses:
+    - OBSERVED
+    - DERIVED
+    - FORWARD_DERIVED
+    - BACKWARD_DERIVED
+    - UNVERIFIED
+
+windows:
+  # Months in the rolling mean and standard deviation. The Stage 3 brief asks
+  # for three; it is named rather than literal because windows.py builds the
+  # column names from it and a second window would otherwise be a rename.
+  rolling_months: 3
+
+  # Minimum non-null months before a rolling statistic is published. Equal to
+  # the window, so a mean over three months is a mean over three months and
+  # not over however many happen to be there. Stage 4 decides what to do with
+  # the nulls this leaves on early months.
+  min_periods: 3
+
+output:
+  # The run manifest and data-quality report -- row counts, month range, the
+  # per-column null rates, the pipeline diagnostics that are deliberately not
+  # feature columns, and the timings deliverable 4 asks for. Every entry in it
+  # carries its own `what` and `means`, so a reader never has to look up what
+  # a number counts.
+  #
+  # This is the only file a build writes. The feature table itself goes to
+  # Postgres and nowhere else.
+  manifest: data/features/feature_store_monthly.manifest.json
+
+database:
+  # The table the feature build upserts into.
+  table: feature_store_monthly
+
+  # Rows per JDBC round trip when Spark bulk-loads the staging table. Larger
+  # batches mean fewer round trips and more driver-side memory held per
+  # partition; 10k is the value the Stage 2 sink settled on.
+  batch_size: 10000
+
+scale:
+  # How many times over the source is replicated for the scaling run
+  # deliverable 4 asks for. Users are re-keyed per copy so the grain is
+  # preserved: five times the users, not five times the rows per user.
+  factor: 5

@@ -400,7 +400,7 @@ def separator_for(path: str | Path) -> str:
         raise ValueError(
             f"Spark reads delimited sources only, got {suffix!r}: {path}. "
             f"Supported: {sorted(DELIMITED_SUFFIXES)}. A workbook has to go "
-            f"through src.utils.io.read_source, which is why the profile that "
+            f"through the Spark reader, which is why the profile that "
             f"reads one is not a Spark profile."
         )
     return DELIMITED_SUFFIXES[suffix]

@@ -16,7 +16,7 @@ where UNKNOWN reads as a fact that was checked.
 
 from pyspark.sql import functions as F
 
-from src.cleaners.geo import LOCATION_TYPES, UNKNOWN
+from src.schema.geo import LOCATION_TYPES, UNKNOWN
 from src.rules import loader
 from src.spark import audit
 from src.spark.spark_utils import chain, lookup, one_of, text

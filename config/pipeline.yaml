@@ -1,9 +1,9 @@
 # Runtime wiring: where the pipeline reads from, where it writes to, and which
 # steps run for a given kind of file.
-#
-# Separate from policy.yaml because it answers a different question. Policy
-# decides WHAT the pipeline does to a row and changes the output; this file
-# decides WHERE the work happens and WHICH steps happen at all. That split is
+
+# Separate from policy.yaml because it answers a different question. 
+# Policy decides WHAT the pipeline does to a row and changes the output; 
+# this file decides WHERE the work happens and WHICH steps happen at all. That split is
 # why the config fingerprint covers policy.yaml and the rule vocabularies but
 # deliberately excludes this file -- pointing the pipeline at a different
 # directory must not read as "the rules changed".

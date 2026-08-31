@@ -23,11 +23,14 @@ class CleaningReport:
         """
         self.entries.append((step, metric, value))
 
-    def to_frame(self):
-        """:returns: The report as a DataFrame, ready to write as a sheet."""
-        import pandas as pd
+    def __str__(self) -> str:
+        if not self.entries:
+            return "(nothing recorded)"
+        width = max(len(s) for s, _, _ in self.entries)
+        return "\n".join(
+            f"  {s:<{width}}  {m:<34} {v}" for s, m, v in self.entries
+        )
 
-        return pd.DataFrame(self.entries, columns=["step", "metric", "value"])
 
     def __str__(self) -> str:
         if not self.entries:

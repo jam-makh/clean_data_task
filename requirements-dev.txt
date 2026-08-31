@@ -1,3 +1,0 @@
-# Everything in requirements.txt, plus the test runner.
--r requirements.txt
-pytest>=8.0

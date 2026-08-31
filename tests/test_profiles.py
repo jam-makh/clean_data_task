@@ -1,11 +1,16 @@
-"""Profiles and the CLI: the same pipeline against a file it has not seen."""
+"""
+Profiles and the CLI: the same pipeline against a file it has not seen.
+
+Detection reads column names and nothing else, so these tests never start a
+JVM -- ``tests/test_runner.py`` covers the run itself and pays for it.
+"""
 
 import pytest
 
 import main as entry
 from src.config import runtime
 from src.config.errors import ConfigError
-from src.pipeline import STEP_REGISTRY, steps_for
+from src.spark.pipeline import SPARK_STEP_REGISTRY, ported, steps_for
 
 
 def config():
@@ -15,13 +20,19 @@ def config():
 
 # --- the registry -----------------------------------------------------------
 
-def test_every_configured_step_exists():
+def test_every_ported_step_exists():
     """
     A typo in a profile must fail at load. Silently skipping a step would
     produce a plausible-looking output with a whole cleaning concern missing.
+
+    Checked over the ported prefix rather than the whole profile: the v4
+    workbook profile opens with ``dates``, which has no Spark implementation
+    and is not getting one -- the source in hand is the forecast extract.
+    ``ported`` is the ledger of what exists, so asking it what runs and then
+    resolving exactly that is the honest version of this check.
     """
     for profile in config().profiles:
-        steps_for(profile.steps)
+        steps_for(ported(profile.steps))
 
 
 def test_an_unknown_step_names_what_is_known():
@@ -113,33 +124,17 @@ def test_a_missing_source_exits_two_not_one(capsys):
     assert "not found" in capsys.readouterr().err.lower()
 
 
-def test_dry_run_writes_nothing(tmp_path, forecast):
-    """
-    A run that reports without producing a file is how you check a profile.
-
-    ``--engine pandas`` is explicit rather than implied. The configured
-    default is spark, so leaving it off would start a JVM inside the suite
-    that is meant to run without one -- and would silently test the other
-    engine's dry run, which does not write a workbook whatever happens.
-    """
-    source = tmp_path / "sample.csv"
-    forecast.head(200).to_csv(source, index=False)
-    assert entry.main([str(source), "--dry-run", "--engine", "pandas"]) == 0
-    assert not list(tmp_path.glob("*.xlsx"))
-
-
-# --- engine selection -------------------------------------------------------
+# --- the CLI ----------------------------------------------------------------
 #
-# The dispatch itself, checked without a JVM. What these pin is which arm runs,
-# not what the arm does -- ``tests/test_runner.py`` covers the spark arm end to
-# end and pays six minutes for the privilege.
+# The dispatch itself, checked without a JVM. What these pin is that main
+# resolves its arguments and hands off -- ``tests/test_runner.py`` covers what
+# the run then does, end to end, and pays six minutes for the privilege.
 
 
-def test_the_configured_engine_is_used_when_the_flag_is_absent(monkeypatch):
+def test_the_source_reaches_the_run(monkeypatch):
     """
-    The default comes from config/pipeline.yaml, and it is spark. A regression
-    here would send every unflagged run to the wrong engine and produce the
-    wrong kind of output.
+    An unflagged run resolves its source and hands it over. A regression here
+    would send the wrong file, or none.
     """
     called = {}
 
@@ -150,29 +145,33 @@ def test_the_configured_engine_is_used_when_the_flag_is_absent(monkeypatch):
     monkeypatch.setattr(entry, "_run_spark", fake)
 
     assert entry.main(["data/raw/forecast_balance_data.csv"]) == 0
-    assert called
+    assert called["source"].name == "forecast_balance_data.csv"
 
 
-def test_the_flag_overrides_the_configured_engine(monkeypatch, tmp_path, forecast):
-    """``--engine pandas`` must not reach the spark arm."""
-    source = tmp_path / "sample.csv"
-    forecast.head(50).to_csv(source, index=False)
+def test_dry_run_is_carried_through(monkeypatch):
+    """
+    ``--dry-run`` has to reach the run, which is what suppresses both the
+    database write and the Kafka announcement.
+    """
+    seen = {}
 
-    def refuse(*_args, **_kwargs):
-        raise AssertionError("--engine pandas reached the spark arm")
+    def fake(source, args):
+        seen["dry_run"] = args.dry_run
+        return 0
 
-    monkeypatch.setattr(entry, "_run_spark", refuse)
+    monkeypatch.setattr(entry, "_run_spark", fake)
 
-    assert entry.main([str(source), "--dry-run", "--engine", "pandas"]) == 0
+    assert entry.main(["data/raw/forecast_balance_data.csv", "--dry-run"]) == 0
+    assert seen["dry_run"] is True
 
 
-def test_a_missing_source_is_caught_before_either_engine(monkeypatch):
+def test_a_missing_source_is_caught_before_the_run(monkeypatch):
     """
     Exit 2 without starting a JVM. Checking the file first is what keeps a
     typo'd path cheap instead of costing Spark startup to discover.
     """
     def refuse(*_args, **_kwargs):
-        raise AssertionError("a missing source reached the spark arm")
+        raise AssertionError("a missing source reached the run")
 
     monkeypatch.setattr(entry, "_run_spark", refuse)
 

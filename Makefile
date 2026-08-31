@@ -4,30 +4,15 @@
 # environment is already activated.
 PYTHON ?= python
 
-# Recipes below never chain with `&&`. Make runs each recipe line in its own
-# shell, and on Windows that shell may be cmd.exe or PowerShell, neither of
-# which accepts `&&` the way sh does. One command per line instead.
-#
-# Deletions go through Python rather than `find`/`rm -rf` for the same reason:
-# those are sh-only, and Python is guaranteed present in a Python project.
+.PHONY: help fingerprint run run-dry test test-fast sample verify kafka-topic db-migrate db-reset db-rules seed-raw emit consumer features features-reset features-scale features-test features-check clean clean-pyc clean-build
 
-.PHONY: help fingerprint run run-pandas run-dry test test-fast parity sample verify kafka-topic db-migrate db-reset seed-raw emit consumer clean clean-pyc clean-build
-
-# `echo` is not portable either: cmd.exe prints the surrounding quotes that sh
-# strips, so the help text goes through Python too.
 help:
-	@$(PYTHON) -c "print('Usage:\n  make run         Run the cleaning pipeline (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the parity sample\n  make parity      Run the pandas-vs-Spark parity tests only\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make fingerprint One line describing cleaned_transactions\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
+	@$(PYTHON) -c "print('Usage:\n  make run         Clean the extract on Spark and upsert it (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make sample      Cut (or re-cut) the test sample\n  make seed-raw    Insert raw rows, print their ids (N=3 DIRTY=1 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make fingerprint One line describing cleaned_transactions\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make db-rules    Seed the Stage 3 rule tables from src/rules/json/\n  make features    Build the Stage 3 feature table (upserts Postgres)\n  make features-reset  Drop the feature table and build it again\n  make features-scale  Rebuild it on the 5x source and report the timings\n  make features-check  The Stage 3 guards that need no JVM\n  make clean       Remove cache and build artifacts\n  make clean-pyc   Remove Python bytecode caches\n  make clean-build Remove pytest/mypy caches')"
 
-# Run the pipeline on the configured engine, which is spark: read the extract,
-# clean it, upsert to Postgres. Needs the stack up -- `make verify` first.
+# Run the pipeline on the configured engine, : read the extract,
+# clean it, upsert to Postgres. Needs the stack up, `make verify` first.
 run:
 	$(PYTHON) main.py
-
-# The same source through the Stage 1 pandas path, producing the multi-sheet
-# workbook instead of database rows. Needs no JVM and no containers, which is
-# what makes it the way to check a cleaning change quickly.
-run-pandas:
-	$(PYTHON) main.py --engine pandas
 
 # Read, clean and report without writing anything. The state you want when the
 # question is whether the cleaning is right rather than whether the write is.
@@ -44,12 +29,7 @@ test:
 test-fast:
 	$(PYTHON) -m pytest -q -m "not spark"
 
-# The parity harness on its own: the pandas pipeline and the Spark pipeline
-# over the same sample, compared column for column.
-parity:
-	$(PYTHON) -m pytest -q tests/test_parity.py
-
-# Cut the parity sample from the full extract. Not normally needed -- the
+# Cut the test sample from the full extract. Not normally needed -- the
 # harness cuts it on first use and rebuilds it when the source changes -- but
 # useful after editing the sampling strategy, which the manifest's version
 # check would otherwise catch only on the next test run.
@@ -61,8 +41,8 @@ verify:
 	$(PYTHON) -m scripts.verify_env
 
 # Create both topics if the broker does not have them. Auto-create is off on
-# purpose -- a producer aimed at a typo'd topic should fail rather than quietly
-# invent one -- so the topics have to be made deliberately. The runner and the
+# purpose - a producer aimed at a typo'd topic should fail rather than quietly
+# invent one - so the topics have to be made deliberately. The runner and the
 # dummy producer each do this before publishing too; this target is for setting
 # a fresh broker up without running anything.
 kafka-topic:
@@ -74,8 +54,7 @@ kafka-topic:
 emit:
 	$(PYTHON) -m scripts.dummy_producer $(if $(PENDING),--pending,--id $(ID))
 
-# Listen for arriving rows and clean each one. Runs until Ctrl-C, so it wants
-# its own terminal: seed and emit from a second one. `make consumer ONCE=1`
+# Listen for arriving rows and clean each one. `make consumer ONCE=1`
 # cleans the first batch and exits, which is the version to run when you want
 # to see the flow rather than leave it running.
 consumer:
@@ -116,6 +95,49 @@ seed-raw:
 # seeded or typed in by hand are gone and their ids mean nothing afterwards.
 db-reset:
 	$(PYTHON) -c "from src.db import migrate, settings; migrate.recreate(settings.load()); print('schema rebuilt')"
+
+# Create the Stage 3 rule tables and load them from src/rules/json/. Idempotent
+# in the sense that matters: the seed replaces the contents, so a rule the JSON
+# no longer declares does not survive in the table where a build would read it.
+db-rules:
+	$(PYTHON) features_main.py --seed-rules
+
+# Build the feature table. Reads cleaned_transactions and the rule tables from
+# Postgres, runs the whole build on Spark, and upserts the result into
+# feature_store_monthly. `make features RULES=json` still reads the vocabularies from src/rules/json/
+# rather than the rule tables, which is the one remaining escape hatch and is
+# about the rules, not the data.
+features:
+	$(PYTHON) features_main.py --rules $(or $(RULES),db) $(if $(NODB),--no-database,)
+
+# Drop the feature table and build it again. This is how a column added to or
+# removed from src/features/contract.py reaches a database that already has the
+# table, because CREATE TABLE IF NOT EXISTS will not alter one it finds -- a
+# removed column would otherwise survive holding the previous build's values,
+# which looks like data and is not. Destructive, and separate from `features`
+# for that reason.
+features-reset:
+	$(PYTHON) -c "from src.db.settings import load, connect; from src.features import settings as fs; t = fs.load().database.table; c = connect(load()); c.cursor().execute(f'DROP TABLE IF EXISTS {t}'); c.cursor().execute(f'DROP TABLE IF EXISTS staging_{t}'); c.commit(); print(f'dropped {t}')"
+	$(MAKE) features
+
+# The scaling run deliverable 4 asks for: the same build over a source
+# replicated to five times the users, so the timings can be compared against
+# the ordinary run above rather than read on their own.
+features-scale:
+	$(PYTHON) features_main.py --rules $(or $(RULES),db) --scale $(or $(FACTOR),5) --no-database
+
+# The Stage 3 tests on their own: the point-in-time rule, the aggregation, the
+# unit decision and the rule vocabularies. These start a JVM -- the build is
+# PySpark, so testing it means running Spark -- which is why the structural
+# guards below are split out for the fast loop.
+features-test:
+	$(PYTHON) -m pytest -q tests/test_features_point_in_time.py tests/test_features_aggregation.py tests/test_features_artifacts.py tests/test_features_units.py tests/test_features_rules.py
+
+# The guards that need no JVM: the contract, the units decision, and the scans
+# that keep the build PySpark and the lag in one module. Seconds rather than
+# minutes, so this is the loop to run while changing the feature build.
+features-check:
+	$(PYTHON) -m pytest -q tests/test_features_rules.py 	  tests/test_features_units.py::test_the_whole_build_is_pyspark 	  tests/test_features_units.py::test_nothing_in_the_build_collects_the_dataset 	  tests/test_features_units.py::test_no_module_but_windows_takes_a_lag 	  tests/test_features_units.py::test_no_window_in_the_build_reaches_forwards 	  tests/test_features_units.py::test_the_forbidden_columns_appear_nowhere_in_the_build 	  tests/test_features_units.py::test_the_source_reader_selects_only_usd_columns
 
 # Remove Python bytecode caches, skipping the virtualenv
 clean-pyc:

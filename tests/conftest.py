@@ -1,11 +1,15 @@
-"""Shared fixtures."""
+"""
+Shared fixtures.
+
+pandas appears here and in ``tests/harness/`` and nowhere else. The pipeline
+is Spark end to end; these are the tests' own tools for building a fixture and
+reading a result back, which is a different job from computing one.
+"""
 
 from pathlib import Path
 
 import pandas as pd
 import pytest
-
-from src.utils.io import read_workbook
 
 SOURCE = (
     Path(__file__).resolve().parents[1]
@@ -17,25 +21,17 @@ FORECAST = (
 
 
 @pytest.fixture(scope="session")
-def workbook():
+def transactions():
     """
-    :returns: (transactions frame, MCC reference) from the real source file.
+    :returns: The v4 workbook's transactions sheet, as text.
+
+    Read with pandas directly. The pipeline's own reader was part of the
+    pandas half and went with it; what these tests need from the file is its
+    columns, and openpyxl behind ``read_excel`` gets them.
     """
     if not SOURCE.exists():
         pytest.skip(f"source file not present: {SOURCE}")
-    return read_workbook(SOURCE)
-
-
-@pytest.fixture(scope="session")
-def transactions(workbook):
-    """:returns: The raw transactions frame."""
-    return workbook[0]
-
-
-@pytest.fixture(scope="session")
-def mcc_reference(workbook):
-    """:returns: MCC code to category."""
-    return workbook[1]
+    return pd.read_excel(SOURCE, sheet_name=0, dtype=str)
 
 
 @pytest.fixture(scope="session")
@@ -58,42 +54,6 @@ def report():
     from src.utils.report import CleaningReport
 
     return CleaningReport()
-
-
-@pytest.fixture
-def tiny_frame():
-    """:returns: A 3-row frame with the columns most cleaners expect."""
-    return pd.DataFrame(
-        {
-            "TXN_ID": [1, 2, 3],
-            "ACCOUNT_ID": [10, 10, 11],
-            "TXN_DATE_TIME": [
-                "2022-03-10 00:51:36", "09/07/2022 17:49",
-                "04-22-2022 22:52",
-            ],
-            "SETTLE_DATE": ["2022-03-13", "0000-00-00", "23-Apr-22"],
-            "TXN_AMOUNT": ["-104.39", "(808.41)", "5.727.580,00"],
-            "TXN_CCY": ["USD", "USD", "LBP"],
-            "MERCHANT_NAME": [
-                "SQ *TAKEALOT", "COURSERA.COM *W2PA", "DUBAI MN /ufw",
-            ],
-            "MCC_CODE": [5411, 8220, 4111],
-            "MERCHANT_CITY": ["BEYROUTH", "ECOM", ""],
-            "TERMINAL_ID": ["ABC12345", "00000000", "00000000"],
-            "AUTH_CODE": ["A1B2C3", "000000", "XYZ999"],
-            "PROCESSING_CODE": [0, 20, 1],
-            "PROCESSING_TYPE": [
-                "Purchase", "Purchase Return/Refund", "ATM Cash Withdrawal",
-            ],
-            "BILLING_AMOUNT": [-104.39, 808.41, -50.0],
-        }
-    )
-
-
-# --- Stage 2: Spark ------------------------------------------------------
-# Session-scoped throughout. A Spark session costs several seconds of JVM
-# startup and only one can exist per process, so a fixture that built one per
-# test would both fail and be slow about it.
 
 
 @pytest.fixture(scope="session")
@@ -140,12 +100,11 @@ def sample_path():
 @pytest.fixture(scope="session")
 def sample_frame(sample_path):
     """
-    :returns: The sample read by the pandas reader the pipeline itself uses.
-        Read through ``read_source`` rather than ``pd.read_csv`` on purpose:
-        the parity claim is about the two pipelines, and a test that read the
-        pandas side its own way would be comparing Spark against something
-        the pipeline never sees.
+    :returns: The parity sample, read the same way ``tests.harness.sample``
+        writes it -- text throughout, empty string distinguished from null --
+        so a test comparing the two is comparing content and not a reader's
+        type inference.
     """
-    from src.utils.io import read_source
-
-    return read_source(sample_path)[0]
+    return pd.read_csv(
+        sample_path, dtype=str, keep_default_na=False, na_values=[""]
+    )

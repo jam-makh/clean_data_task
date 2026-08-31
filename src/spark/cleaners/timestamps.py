@@ -41,7 +41,7 @@ two candidate offsets.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from src.cleaners.timestamps import (
+from src.schema.timestamps import (
     BRACKET_DAY_FIRST,
     BRACKET_MONTH_FIRST,
     DAY_FIRST,

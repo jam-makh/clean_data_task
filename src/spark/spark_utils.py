@@ -310,7 +310,7 @@ def joined(frame, key: Column, mapping: dict, value: str, value_type: str):
             f"that name and every later reference to it would be ambiguous"
         )
     # Named for the column it feeds, so two lookups in one stage cannot collide
-    # on a shared scratch name -- which they would do silently, the second join
+    # on a shared scratch name which they would do silently, the second join
     # dropping the first one's key.
     key_column = f"_rule_key_{value}"
     return (

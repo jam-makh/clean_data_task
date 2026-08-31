@@ -41,7 +41,7 @@ from collections import Counter
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 
-from src.cleaners.mcc import CONFIDENCE_ORDER, HIGH, SIGNAL, MccResolver
+from src.schema.mcc import CONFIDENCE_ORDER, HIGH, SIGNAL, MccResolver
 from src.rules import loader
 from src.spark import audit
 from src.spark.spark_utils import text

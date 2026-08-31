@@ -33,7 +33,7 @@ output -- the flags column is a ``;``-joined string, not a set.
 
 from pyspark.sql import functions as F
 
-from src.cleaners.codes import REFUND_LABEL
+from src.schema.codes import REFUND_LABEL
 from src.rules import loader
 from src.spark import audit
 from src.spark.spark_utils import lookup, text

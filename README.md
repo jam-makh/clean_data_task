@@ -1,12 +1,61 @@
 # Transaction Cleaning Pipeline
 
-_This task was realized as part of the Onboarding at X-Tends' Machine Learning Team by Joseph Am-Makhlouf_
+_This learning project is realized as part of the Onboarding at X-Tends' Machine Learning Team by Joseph Am-Makhlouf_
 
-A class-based cleaning pipeline for a 2,296-row card transactions workbook, exposing one importable function and emitting a multi-sheet workbook that behaves like a small database.
+This file covers what the pipeline is, how to run it, and what it produce. The reasoning behind each cleaning decision - lives in [`ARCHITECTURE.md`](ARCHITECTURE.md), one section per stage.
 
-This file covers what the pipeline is, how to run it, and what it produced. Every *why* - the reasoning behind each cleaning decision - lives in [`ARCHITECTURE.md`](ARCHITECTURE.md), one section per stage.
+The project was originally organized by task, but for the sake of an easier understand of the repo, it will be explained as a one project:
 
----
+# Task 2 - Reproducible Pipeline
+
+Ingestion, validation, cleaning and persistence of the card transaction
+extract. The output is `cleaned_transactions`: one typed, deduplicated row per
+transaction, with every derived figure carrying a status that says how far it
+can be trusted.
+
+## What changed since last presentation
+
+All of it concerns the running balance, which was the weakest column in the
+previous version.
+
+- **The mover is detected, not assumed.** The extract does not use one column
+  throughout: for its first 188,469 rows the stated balance moves by
+  `TXN_AMOUNT_CLEANED` (the account's own currency), and from row 188,470 on it
+  moves by `BILLING_AMOUNT`. Nothing in the file announces the change. The
+  previous version assumed the first convention everywhere, which is why the
+  entire second half of the extract came out `CONTRADICTED`.
+- **The seam is found by segmentation, not configured.** Every pair of
+  consecutive stated balances is asked which candidate mover explains the step
+  between them, and the evidence is segmented in sequence order with a
+  per-change penalty. A hardcoded row number is a fact about *this* extract and
+  would be carried silently into the next one; the detector handles a file with
+  no seam, one seam, or several.
+- **Reconstruction now runs in both directions.** Forward from the last trusted
+  balance before a row, and backward from the first trusted one after it. Where
+  both apply, agreement is the check; where only one does, the arithmetic is no
+  less exact for having nothing to confirm it.
+- **A figure is stated wherever the arithmetic reaches, with its provenance.**
+  The old design withheld any value it could not prove. The principle survives,
+  but a withheld value is not neutral downstream - it is a null a feature build
+  must either drop or impute, and both are decisions made further from the
+  evidence than this stage is. `RUNNING_BALANCE_STATUS` now carries one of
+  `OBSERVED`, `DERIVED`, `FORWARD_DERIVED`, `BACKWARD_DERIVED`, `UNVERIFIED`,
+  `CONTRADICTED` or `UNAVAILABLE`, and only `UNAVAILABLE` has no number beside
+  it - no trusted anchor is reachable from that row in either direction.
+- **The currency of the answer is published.** A balance rebuilt from the
+  native mover is in `TXN_CCY`; one rebuilt from the billing mover is in USD.
+  `RUNNING_BALANCE_CURRENCY` says which on every row that carries a figure, and
+  `RUNNING_BALANCE_NORMALIZED` values it in USD so anything aggregating across
+  accounts is adding comparable numbers.
+- **The reconcile tolerance is evidence-based.** `0.02` rather than `0.01`,
+  because the billing-regime chains reconcile on 87.8% of adjacent pairs at
+  `0.01` and 100% at `0.02`, and the figure does not move again at `0.05`, `1.0`
+  or `5.0`. That plateau is what says the rows between the two thresholds are
+  rounding residue, not error.
+
+The reasoning behind each of these lives in
+[`ARCHITECTURE.md`](ARCHITECTURE.md); the numbers they produce are in
+[Results on the source file](#results-on-the-source-file).
 
 ## Quick start
 
@@ -28,19 +77,15 @@ make run
 
 That runs the **Spark** path: it reads `data/raw/forecast_balance_data.csv`, cleans it through the eleven ported stages, and upserts the result into Postgres. It needs the containers up — `make verify` checks Java, Spark, Postgres and Kafka and names the fix for anything that is down.
 
-To clean without any of that, use the pandas path, which needs no JVM and no containers and writes the multi-sheet workbook instead:
-
-```bash
-make run-pandas
-```
-
 Or read, clean and report while writing nothing at all:
 
 ```bash
 make run-dry
 ```
 
-Which engine runs without a flag is `engine:` in `config/pipeline.yaml`. The two are not interchangeable implementations of one thing — choosing an engine chooses what the run produces. What the parity harness guarantees is that the *cleaning* agrees across both.
+There is one engine. The pipeline was built twice — once in pandas as the Stage 1 reference, once on Spark as the Stage 2 deliverable — and held to the same answers by a parity harness that ran both over the same sample and compared column for column. It passed on all eleven stages, which is what made the pandas half redundant: a second implementation kept only to be compared against is a second implementation to maintain. It has been removed, and Spark is the pipeline.
+
+What survived is the vocabulary the two shared — the column names, the status values and a handful of pure functions — now in [`src/schema/`](src/schema/) and imported by the Spark stages. Every line of it is unchanged from the reviewed pandas modules it came out of.
 
 Run the test suite.
 
@@ -62,7 +107,6 @@ Both `make` targets are one-line wrappers, so the direct equivalents work identi
 
 ```powershell
 python main.py
-python main.py --engine pandas
 python -m pytest -q
 ```
 
@@ -418,7 +462,6 @@ flowchart TD
     REP[["CleaningReport<br/>shared audit trail"]]
 
     subgraph output["Two sinks, chosen by engine"]
-        O2["workbook - pandas<br/>cleaned_transactions + 7 more sheets"]
         DB[("cleaned_transactions - spark<br/>Postgres, upserted on txn_id")]
         EV{{"pipeline.run.completed.v1<br/>counts, fingerprint, job id"}}
     end
@@ -445,9 +488,7 @@ flowchart TD
     S10 -.-> REP
     S11 -.-> REP
 
-    S11 --> O2
     S11 --> DB
-    REP --> O2
     REP --> EV
     DB -.->|"after the write, never before"| EV
 ```
@@ -480,26 +521,6 @@ produces, and `codes` needs neither. A diagram that sorted them into blocks
 would be describing a pipeline that does not exist.
 
 Step order follows real dependencies rather than preference; [Execution order and why](ARCHITECTURE.md#execution-order-and-why) lists each edge and what breaks if it is reversed.
-
----
-
-## Output workbook
-
-| Sheet | Rows | Contents |
-|---|---|---|
-| `raw_transactions` | 2296 | Source, untouched, so any cleaned value is traceable without opening the original file. |
-| `cleaned_transactions` | 2296 | Cleaned columns only; a raw column is dropped once a cleaned one supersedes it. |
-| `processing_codes` | 3 | Transaction-type codes, as a joinable lookup. |
-| `mcc_codes` | 41 | The MCC reference, carried through as a joinable lookup. |
-| `pending_settlement` | 14 | Rows whose settlement date is unavailable. |
-| `anomaly_settlement` | 6 | Rows where settlement precedes the transaction. |
-| `merchant_review` | 0 | Merchant names absent from the master — the ones a future file will surface. |
-| `mcc_review` | 11 | Merchants with unresolved MCC conflicts to be manually reviewed. |
-| `cleaning_report` | 67 | Every metric the run recorded. |
-
-The settlement and review sheets **mirror** rows rather than moving them, because removing real transactions to isolate a date problem would corrupt every total computed from the main table.
-
-Column names are **lowercase** throughout, because an unquoted identifier folds to lowercase in Postgres and DuckDB anyway, so these names survive a load without quoting. Every cleaned column keeps a `_cleaned` suffix: `txn_amount_cleaned` is the parsed float, `txn_amount` on `raw_transactions` is the text the source held. `matches_status` is the one exception: it is not a repair of the incoming status but a fresh verdict, recomputed against the current merchant master, so the suffix would claim a provenance it does not have.
 
 ---
 
@@ -560,10 +581,10 @@ make test
 ```
 
 Over 600 tests, table-driven from the awkward values in the real file rather
-than invented ones. They fall into seven groups: the row-level parsing rules,
+than invented ones. They fall into six groups: the row-level parsing rules,
 the policies those rules exist to serve, staleness guards on the JSON rule
-files, the output contract, the pandas-vs-Spark parity harness, the streaming
-path's own units, and one end-to-end test of the whole flow.
+files, the output contract, the streaming path's own units, and one
+end-to-end test of the whole flow.
 [What a test should assert](ARCHITECTURE.md#what-a-test-should-assert) explains
 the distinction the suite is built on.
 
@@ -579,7 +600,6 @@ own diagnostic, not a code defect.
 
 ```bash
 make test-fast    # everything except the tests marked `spark`
-make parity       # only the pandas-vs-Spark comparison
 make verify       # does this machine run the Stage 2 stack at all
 ```
 
@@ -597,10 +617,6 @@ consumer's commit ordering and its failure handling against a fake broker, and
 the stage log's output. The second takes a few minutes and proves the parts
 fit: a dirty row inserted, announced, consumed, cleaned and upserted, then
 cleaned a second time to show a redelivery changes nothing.
-
-[The parity harness](ARCHITECTURE.md#the-parity-harness) explains what it
-compares, what it deliberately does not treat as a difference, and how it grows
-as stages are ported.
 
 ### Walking the whole thing by hand
 
@@ -811,24 +827,7 @@ staging table, then one `ON CONFLICT` statement merges it into
 `cleaned_transactions`. Spark's JDBC writer has no upsert mode, which is why
 the staging table exists.
 
-```bash
-make run-pandas
-```
-
-The Stage 1 pandas path over the same source, producing the multi-sheet
-workbook instead of database rows. No JVM, no containers.
-
-#### 10. Close with the correctness argument
-
-```bash
-make parity
-```
-
-Runs the pandas pipeline and the Spark pipeline over the same sample and
-compares them column for column -- the evidence that the rewrite did not change
-the answers.
-
-#### 11. Tear down
+#### 10. Tear down
 
 ```bash
 docker compose down
@@ -839,11 +838,212 @@ data too.
 
 ---
 
-## Future work
+# Task 3 - Feature Table
 
-**Resolve the settlement-date question.** The 14 unknown dates are left null pending a domain answer on whether the column drives chargeback windows, statement periods, or regulatory reporting, and whether the source can simply be re-queried.
+## What this task is
 
-**Replace curated overrides with internal reference data.** An existing merchant master or the transaction-categorization pipeline's own merchant→category mapping would be authoritative and inside the security perimeter, making layers 2–4 of the MCC resolver largely redundant.
+Stage 2 produces one row per transaction. A forecasting model needs one row per
+**user per month**, with every value on it computable from information that
+existed *before* that month began.
+
+Task 3 is that transformation, and nothing more: it builds the feature table,
+it does not model. The target is the balance a user holds at the end of a
+month; the features are its history, the flows into and out of it, how active
+the user was, and where they spent. Which of those actually predicts anything
+is Stage 4's question.
+
+Three properties define the build:
+
+- **Point-in-time correctness.** Every feature on month M is derived from
+  months strictly before M. The one exception is the target, which reads M by
+  definition and is never an input.
+- **One grain, one destination.** One row per `(user_id, month)`, upserted into
+  `feature_store_monthly` in Postgres. There is no file copy - a second
+  artifact is a second thing to keep in step.
+- **PySpark throughout.** The frame that leaves the reader is the frame that
+  reaches the upsert. Nothing in `src/features/` imports pandas, and a test
+  enforces that rather than trusting it.
+
+```bash
+make db-rules
+```
+
+Seeds the spending and direction vocabularies into the rule tables.
+
+```bash
+make features
+```
+
+Reads `cleaned_transactions`, builds the table, upserts it, and writes the run
+report to `data/features/feature_store_monthly.manifest.json`.
+
+```bash
+make features-scale
+```
+
+The same build over a source replicated to five times the users, so the timings
+can be compared rather than read on their own.
+
+## The feature table
+
+28 columns: two keys, 25 features, one target. Every monetary column is USD.
+
+`prev_1m_` means the calendar month immediately before this row's month -
+guaranteed by a dense spine, so a user who was silent in April still has an
+April row and May's `prev_1m` is April rather than March.
+
+### Grain
+
+| Column | What it is |
+| --- | --- |
+| `user_id` | The user. Account-level figures are rolled up to here |
+| `month` | First day of the month this row describes |
+
+### Balance history
+
+| Column | What it is |
+| --- | --- |
+| `prev_1m_closing_balance_usd` | Closing balance one month before this row's month |
+| `prev_2m_closing_balance_usd` | Two months before |
+| `prev_3m_closing_balance_usd` | Three months before |
+| `roll3_mean_closing_balance_usd` | Mean closing balance over the three preceding months |
+| `roll3_std_closing_balance_usd` | Sample standard deviation of the same three; null under three observations |
+| `delta_prev_1m_2m_closing_balance_usd` | `prev_1m` minus `prev_2m` - the latest month-on-month change that is still in the past |
+
+A user's closing balance is the sum of their accounts' month-end balances. An
+account that was quiet keeps its last known figure; nothing is ever filled
+backwards.
+
+### Money in and out
+
+| Column | What it is |
+| --- | --- |
+| `prev_1m_total_credited_usd` | Money in during the preceding month, as a positive magnitude |
+| `prev_1m_total_debited_usd` | Money out during the preceding month, as a positive magnitude |
+| `prev_1m_net_flow_usd` | Credited minus debited |
+| `roll3_mean_total_credited_usd` | Mean monthly credit over the three preceding months |
+| `roll3_mean_total_debited_usd` | Mean monthly debit over the same three |
+| `roll3_mean_net_flow_usd` | Mean monthly net flow over the same three |
+
+Direction comes from the processing code's declared direction, never from the
+sign the source wrote on the amount. A code that declares no direction enters
+neither total and is counted in the run report instead.
+
+### Activity
+
+| Column | What it is |
+| --- | --- |
+| `prev_1m_txn_count` | Transactions in the preceding month |
+| `prev_1m_distinct_merchants` | Distinct counterparties in the preceding month; internal descriptors excluded |
+| `accounts_held` | Accounts whose first transaction is strictly before this row's month |
+
+`accounts_held` is a point-in-time count, not a count over all time - the
+latter would tell a model in month 3 that the user opens a fourth account in
+month 40.
+
+### Calendar
+
+| Column | What it is |
+| --- | --- |
+| `month_of_year` | 1-12 for this row's month |
+| `days_in_month` | 28-31 for this row's month |
+
+Both are properties of the Gregorian calendar and fixed before the month
+begins, which is why they are not lagged.
+
+### Spending
+
+| Column | What it is |
+| --- | --- |
+| `prev_1m_total_spend_usd` | Spend-eligible debits in the preceding month |
+| `prev_1m_spend_groceries_usd` | Of that, groceries |
+| `prev_1m_spend_dining_usd` | Dining |
+| `prev_1m_spend_retail_usd` | Retail |
+| `prev_1m_spend_cash_atm_usd` | Cash and ATM |
+| `prev_1m_spend_transport_usd` | Transport |
+| `prev_1m_spend_bills_usd` | Bills |
+| `prev_1m_spend_other_usd` | The residual - anything whose MCC maps to no category above |
+
+Amounts only. A category's share of the month is its amount over
+`prev_1m_total_spend_usd`, and both are on the row, so publishing the quotient
+as well would duplicate information at one column per category. Stage 4 divides
+if Stage 4 wants a share.
+
+Spending is narrower than debits: a transfer between the customer's own
+accounts is a real outflow and belongs in `total_debited`, but it is not
+consumption and enters no category. The categories therefore sum to
+`prev_1m_total_spend_usd`, not to `prev_1m_total_debited_usd`.
+
+### Target
+
+| Column | What it is |
+| --- | --- |
+| `target_closing_balance_usd` | The user's closing balance at the end of *this* row's month |
+
+The label. It reads month M - the one column allowed to - and must never be
+used as an input. It comes from the same underlying figure the lags do, so the
+label and its own history are on one scale by construction.
+
+## The run report
+
+Pipeline diagnostics are deliberately **not** feature columns. How many
+accounts contributed a balance, whether a figure was carried forward, how many
+transactions could not be classified - these describe the build, not the
+customer, and a model handed them has to be told to ignore them.
+
+They are still computed, and they go here:
+
+```
+data/features/feature_store_monthly.manifest.json
+```
+
+Every metric in it is self-describing - the value, what it counts, and what a
+high or low reading means - so a number never has to be looked up elsewhere:
+
+```json
+"account_months_carried_forward": {
+  "value": 18432,
+  "of": 204800,
+  "pct": 9.0,
+  "what": "Account-months with no observation of their own, filled from an earlier month.",
+  "means": "Real figures, but stale. A high rate means the balance series leans on persistence rather than on fresh statements."
+}
+```
+
+The report covers, in sections:
+
+| Section | What it answers |
+| --- | --- |
+| `coverage` | How much table came out of how much input, over what window |
+| `balance_quality` | Rows excluded as `CONTRADICTED` or `UNAVAILABLE`, account-months observed vs. carried forward vs. never reachable, accounts that never supplied a balance, partial rollups, the longest carry-forward run |
+| `direction_quality` | Credits, debits, transactions with undeclared direction and the USD they represent, which codes they were, and sign disagreements |
+| `spending_quality` | What was spend-eligible, what was excluded as transfer, unmapped and null MCCs, and the residual's share of all spend |
+| `activity_quality` | Inactive user-months, dormancy percentiles, internal descriptors, unparseable timestamps |
+| `point_in_time` | Every column's `known_at`, and which one is the target |
+| `performance` | Per-phase wall clock, the slowest phase, and JVM peak memory |
+
+## Where the reasoning lives
+
+This section says *what* each column is. *Why* it is computed that way - the
+dense spine, the balance eligibility cutoff, why the lag is taken in exactly
+one module, why the diagnostics are lagged and then dropped rather than never
+computed - is written where the code is, one module docstring per concern:
+
+| Module | The decision it argues for |
+| --- | --- |
+| [`src/features/contract.py`](src/features/contract.py) | The column list, and why the diagnostics and shares are not on it |
+| [`src/features/spine.py`](src/features/spine.py) | Why the account timeline is dense to the end of the window |
+| [`src/features/balances.py`](src/features/balances.py) | Carry-forward, and why nothing is ever filled backwards |
+| [`src/features/windows.py`](src/features/windows.py) | The point-in-time rule as a window frame |
+| [`src/features/diagnostics.py`](src/features/diagnostics.py) | Why observability is counted once at the end rather than per metric |
+| [`src/features/writer.py`](src/features/writer.py) | Why the upsert goes through a staging table |
+
+Stage 2's reasoning is in [`ARCHITECTURE.md`](ARCHITECTURE.md), one section
+per cleaning stage.
+
+---
+
+# Future work
 
 **Extend the MCC reference.** Car rental (`7512` in ISO 18245) is absent, so `AVIS` and `HRTZ` are recorded under `7538` Automotive Service Shops by convention rather than correctness.
 

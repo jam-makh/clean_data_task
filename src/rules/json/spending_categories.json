@@ -1,0 +1,79 @@
+{
+  "_comment": "The Stage 3 spending vocabulary: which processing codes count as spending at all, the closed set of categories, and which category each MCC falls in. Separate from processing_codes.json so that Stage 2's config fingerprint does not move when a Stage 3 category is renamed -- direction is a fact about the source, spend scope is a decision about the feature table.",
+
+  "_eligibility_comment": "Spend eligibility is a property of the processing code, not the MCC. A DEBIT that is not spend-eligible still counts in total_debited and net_flow -- the money did leave -- but contributes to no spending category. Code 23 Transfer Out is the case this exists for: all 6929 rows in the extract carry MCC 6012 with merchant names STANDING ORDER, CARD SETTLEMENT and INTERNAL TRANSFER, which is money moving between the customer's own accounts and not consumption. Credits are false throughout because Stage 3 spending is debit-only; code 20 refunds are money coming back and would need a signed category to belong here at all.",
+  "spend_eligible": {
+    "00": true,
+    "01": true,
+    "20": false,
+    "21": false,
+    "22": false,
+    "23": false,
+    "24": true,
+    "25": false,
+    "26": false,
+    "27": false,
+    "28": false,
+    "29": true,
+    "30": true,
+    "31": true
+  },
+
+  "_categories_comment": "Short and stable, per the Stage 3 brief. 'other' is the residual and there is exactly one of them: an MCC absent from the map below lands there rather than creating a category nobody declared. display_order fixes the column order in the feature table so a rename cannot silently reorder it.",
+  "categories": [
+    {"category": "groceries", "display_order": 1, "is_residual": false},
+    {"category": "dining",    "display_order": 2, "is_residual": false},
+    {"category": "retail",    "display_order": 3, "is_residual": false},
+    {"category": "cash_atm",  "display_order": 4, "is_residual": false},
+    {"category": "transport", "display_order": 5, "is_residual": false},
+    {"category": "bills",     "display_order": 6, "is_residual": false},
+    {"category": "other",     "display_order": 7, "is_residual": true}
+  ],
+
+  "_mcc_comment": "Every MCC appearing in the forecast extract (26) or asserted in merchants.json (36), union 37. 5999 is mcc_rules.json's declared catch_all and maps to the residual rather than to retail: routing it to a real category would assert a meaning the code explicitly does not carry. 6012 is the financial-institution rail and reaches this map only on codes that are not spend-eligible, so its entry is defensive.",
+  "mcc_categories": {
+    "5411": "groceries",
+    "5300": "groceries",
+
+    "5812": "dining",
+    "5814": "dining",
+
+    "5651": "retail",
+    "5712": "retail",
+    "5732": "retail",
+    "5815": "retail",
+    "5912": "retail",
+    "5921": "retail",
+    "5942": "retail",
+    "5947": "retail",
+    "5977": "retail",
+
+    "6011": "cash_atm",
+    "6051": "cash_atm",
+
+    "4111": "transport",
+    "4121": "transport",
+    "4511": "transport",
+    "5533": "transport",
+    "5541": "transport",
+    "7538": "transport",
+
+    "4814": "bills",
+    "4899": "bills",
+    "4900": "bills",
+    "6300": "bills",
+    "7372": "bills",
+    "8220": "bills",
+
+    "4215": "other",
+    "4829": "other",
+    "5999": "other",
+    "6012": "other",
+    "6211": "other",
+    "7011": "other",
+    "7311": "other",
+    "7399": "other",
+    "7997": "other",
+    "8062": "other"
+  }
+}
