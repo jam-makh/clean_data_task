@@ -16,9 +16,9 @@ Runtime wiring -- database URL, Kafka brokers, credentials -- is the third
 kind and does not exist yet. It arrives with the services it points at.
 """
 
-from src.config.errors import ConfigError
-from src.config.fingerprint import config_fingerprint, short_fingerprint
-from src.config.policy import Policy, load
+from src.config_readers.errors import ConfigError
+from src.config_readers.fingerprint import config_fingerprint, short_fingerprint
+from src.config_readers.policy import Policy, load
 
 __all__ = [
     "ConfigError",

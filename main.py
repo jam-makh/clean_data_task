@@ -20,8 +20,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from src.config import runtime
-from src.config.errors import ConfigError
+from src.config_readers import runtime
+from src.config_readers.errors import ConfigError
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -19,7 +19,7 @@ different keys and different columns, and the one thing worth sharing -- the
 reasoning -- is written down in both places.
 """
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 from src.db.settings import Database, connect
 
 from features import contract
@@ -153,7 +153,7 @@ def verify_shape(
         )
 
     raise ConfigError(
-        f"{table} does not match src/features/contract.py -- "
+        f"{table} does not match features/contract.py -- "
         + "; ".join(problems)
         + ". CREATE TABLE IF NOT EXISTS cannot alter a table it finds, so a "
         "schema change needs the table rebuilt: run `make features-reset`, "

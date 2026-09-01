@@ -8,8 +8,8 @@ JVM -- ``tests/test_runner.py`` covers the run itself and pays for it.
 import pytest
 
 import main as entry
-from src.config import runtime
-from src.config.errors import ConfigError
+from src.config_readers import runtime
+from src.config_readers.errors import ConfigError
 from src.spark.pipeline import SPARK_STEP_REGISTRY, ported, steps_for
 
 

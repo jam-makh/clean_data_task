@@ -21,7 +21,7 @@ import sys
 
 def build_parser() -> argparse.ArgumentParser:
     """:returns: The command line, with the configured defaults in the help."""
-    from src.config import runtime
+    from src.config_readers import runtime
 
     config = runtime.load()
     consumer = config.kafka.consumer
@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from dataclasses import replace
 
-    from src.config.errors import ConfigError
+    from src.config_readers.errors import ConfigError
     from src.db.settings import load as load_connection
     from src.kafka import consumer as consumer_module
     from src.kafka.settings import load as load_broker

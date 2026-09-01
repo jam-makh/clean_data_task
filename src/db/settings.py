@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 ENV_FILE = Path(".env")
 

@@ -25,7 +25,7 @@ against the frame without a database and against ``sql/schema.sql`` without a
 Spark session, which is what ``tests/test_db_contract.py`` does.
 """
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 # The table this describes. Named here rather than passed in: two callers
 # disagreeing about which table the contract describes is not a configuration

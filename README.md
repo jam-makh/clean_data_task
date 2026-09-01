@@ -862,7 +862,7 @@ Three properties define the build:
   `feature_store_monthly` in Postgres. There is no file copy - a second
   artifact is a second thing to keep in step.
 - **PySpark throughout.** The frame that leaves the reader is the frame that
-  reaches the upsert. Nothing in `src/features/` imports pandas, and a test
+  reaches the upsert. Nothing in `features/` imports pandas, and a test
   enforces that rather than trusting it.
 
 ```bash
@@ -1032,12 +1032,12 @@ computed - is written where the code is, one module docstring per concern:
 
 | Module | The decision it argues for |
 | --- | --- |
-| [`src/features/contract.py`](src/features/contract.py) | The column list, and why the diagnostics and shares are not on it |
-| [`src/features/spine.py`](src/features/spine.py) | Why the account timeline is dense to the end of the window |
-| [`src/features/balances.py`](src/features/balances.py) | Carry-forward, and why nothing is ever filled backwards |
-| [`src/features/windows.py`](src/features/windows.py) | The point-in-time rule as a window frame |
-| [`src/features/diagnostics.py`](src/features/diagnostics.py) | Why observability is counted once at the end rather than per metric |
-| [`src/features/writer.py`](src/features/writer.py) | Why the upsert goes through a staging table |
+| [`features/contract.py`](features/contract.py) | The column list, and why the diagnostics and shares are not on it |
+| [`features/spine.py`](features/spine.py) | Why the account timeline is dense to the end of the window |
+| [`features/balances.py`](features/balances.py) | Carry-forward, and why nothing is ever filled backwards |
+| [`features/windows.py`](features/windows.py) | The point-in-time rule as a window frame |
+| [`features/diagnostics.py`](features/diagnostics.py) | Why observability is counted once at the end rather than per metric |
+| [`features/writer.py`](features/writer.py) | Why the upsert goes through a staging table |
 
 Stage 2's reasoning is in [`ARCHITECTURE.md`](ARCHITECTURE.md), one section
 per cleaning stage.

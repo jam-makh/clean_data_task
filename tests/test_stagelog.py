@@ -274,7 +274,7 @@ def test_the_numbers_are_the_stage_s_own(spark):
     metric. If the measurement were fake, or read off the wrong frame, this is
     where it shows.
     """
-    from src.config.policy import load as load_policy
+    from src.config_readers.policy import load as load_policy
     from src.spark import pipeline
 
     rows = [

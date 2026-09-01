@@ -101,7 +101,7 @@ features:
 # which looks like data and is not. Destructive, and separate from `features`
 # for that reason.
 features-reset:
-	$(PYTHON) -c "from src.db.settings import load, connect; from src.features import settings as fs; t = fs.load().database.table; c = connect(load()); c.cursor().execute(f'DROP TABLE IF EXISTS {t}'); c.cursor().execute(f'DROP TABLE IF EXISTS staging_{t}'); c.commit(); print(f'dropped {t}')"
+	$(PYTHON) -c "from src.db.settings import load, connect; from features import settings as fs; t = fs.load().database.table; c = connect(load()); c.cursor().execute(f'DROP TABLE IF EXISTS {t}'); c.cursor().execute(f'DROP TABLE IF EXISTS staging_{t}'); c.commit(); print(f'dropped {t}')"
 	$(MAKE) features
 
 # The scaling run deliverable 4 asks for: the same build over a source

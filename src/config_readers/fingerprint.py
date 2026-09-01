@@ -18,7 +18,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 # Every file whose contents can change the cleaned output. Rule vocabularies
 # and the policy file both qualify; runtime wiring does not, because pointing

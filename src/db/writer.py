@@ -31,7 +31,7 @@ def _batch_size(given: int | None) -> str:
     """
     if given is not None:
         return str(given)
-    from src.config import runtime
+    from src.config_readers import runtime
 
     return str(runtime.load().database.batch_size)
 

@@ -18,7 +18,7 @@ from tests.harness import features
 
 # Where the build lives. Parsed rather than imported, because what is under
 # test is that a module does not contain an operation at all.
-PACKAGE = Path("src/features")
+PACKAGE = Path("features")
 
 # The one module allowed to lag. Every other point-in-time column in the table
 # is produced by calling into it.
@@ -233,7 +233,7 @@ def test_no_module_but_windows_takes_a_lag():
 
     assert offenders == {}, (
         f"lag functions outside windows.py: {offenders}. Route them through "
-        f"src/features/windows.py so the shift is taken in one place."
+        f"features/windows.py so the shift is taken in one place."
     )
 
     # And the guard is load-bearing: windows.py really does take the lags.

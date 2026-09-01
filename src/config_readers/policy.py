@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 DEFAULT_PATH = Path("config/policy.yaml")
 

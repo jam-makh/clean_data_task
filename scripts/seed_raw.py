@@ -97,7 +97,7 @@ _MERCHANT_NAME = raw.SOURCE_COLUMNS.index("MERCHANT_NAME")
 
 def build_parser() -> argparse.ArgumentParser:
     """:returns: The command line."""
-    from src.config import runtime
+    from src.config_readers import runtime
 
     default_source = runtime.load().paths.source
     parser = argparse.ArgumentParser(

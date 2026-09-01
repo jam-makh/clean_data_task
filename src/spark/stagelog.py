@@ -412,7 +412,7 @@ class StageLog:
             one per message.
         """
         if self._policy is None:
-            from src.config.policy import load
+            from src.config_readers.policy import load
 
             self._policy = load()
         return self._policy

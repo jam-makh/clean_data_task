@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 from src.db import contract, migrate
 
 SCHEMA = Path("sql/schema.sql")

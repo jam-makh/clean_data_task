@@ -31,8 +31,8 @@ executes the lot in two actions over the finished frame -- see
 
 from pyspark.sql import functions as F
 
-from src.config.policy import Policy
-from src.config.policy import load as load_policy
+from src.config_readers.policy import Policy
+from src.config_readers.policy import load as load_policy
 from src.spark import audit
 from src.spark.cleaners import (
     amounts,

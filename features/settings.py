@@ -1,7 +1,7 @@
 """
 The Stage 3 build settings, read from ``config/features.yaml`` and frozen.
 
-Separate from ``src.config.policy`` so a Stage 3 knob does not move the
+Separate from ``src.config_readers.policy`` so a Stage 3 knob does not move the
 Stage 2 config fingerprint.
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 DEFAULT_PATH = Path("config/features.yaml")
 

@@ -191,7 +191,7 @@ def rows_by_key(table, *keys) -> dict:
 
     The one place a test is allowed to leave Spark. Reading four rows back to
     assert on them is the assertion, not the pipeline -- nothing under
-    ``src/features`` does this, and ``test_features_engine`` is what keeps
+    ``features`` does this, and ``test_features_engine`` is what keeps
     that true.
 
     :param table: The frame to collect.

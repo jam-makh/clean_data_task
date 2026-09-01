@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 from features.settings import WindowSettings
 
 # The grain a window is taken within. A frame without a partition would walk

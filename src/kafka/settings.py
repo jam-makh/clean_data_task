@@ -146,7 +146,7 @@ def load(env: dict[str, str] | None = None, config=None) -> Broker:
     if env is None:
         env = {**read_env_file(), **os.environ}
     if config is None:
-        from src.config import runtime
+        from src.config_readers import runtime
 
         config = runtime.load().kafka
 
@@ -174,7 +174,7 @@ def load_subscription(
     if env is None:
         env = {**read_env_file(), **os.environ}
     if config is None:
-        from src.config import runtime
+        from src.config_readers import runtime
 
         config = runtime.load().kafka
 

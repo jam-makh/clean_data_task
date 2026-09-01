@@ -20,8 +20,6 @@ ACCOUNTS_HELD = "accounts_held"
 # run report can read it.
 MONTHS_SINCE = "months_since_last_txn"
 
-COUNTERPARTY = "counterparty"
-
 
 def counterparties(frame=None):
     """

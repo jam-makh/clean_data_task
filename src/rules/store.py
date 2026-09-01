@@ -7,7 +7,7 @@ from the tables so the feature build has one place to look.
 
 from dataclasses import dataclass
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 from src.db.settings import Database, connect
 from src.rules import loader
 

@@ -1,22 +1,16 @@
 """
 Reading the Stage 2 cleaned transactions the feature build starts from.
-
-Spark end to end. The rows are read into a Spark DataFrame and stay one all
-the way to the Postgres upsert -- nothing here or downstream calls
-``toPandas``, and the only Python-side objects are the rule vocabularies,
-which are metadata rather than data.
+The rows are read into a Spark DataFrame and stay one all
+the way to the Postgres upsert.
 
 Postgres is the only source. There is no file reader: the cleaned
-transactions live in a table, and a second way in would be a second thing
-that can disagree with it about what Stage 2 produced.
-
-Only the columns Stage 3 actually uses are read, and the units decision is
+transactions live in a table. The units decision is
 enforced here by never selecting the native-currency ones.
 """
 
 from pyspark.sql import functions as F
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 from src.db.settings import Database
 
 TABLE = "cleaned_transactions"

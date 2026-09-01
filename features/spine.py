@@ -13,7 +13,7 @@ avoid a per-account loop; here the engine does it.
 
 from pyspark.sql import functions as F
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 FIRST_MONTH = "first_month"
 

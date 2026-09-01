@@ -447,7 +447,7 @@ def consume(
     :param write_line: Where the consumer's own lines go.
     :returns: Rows cleaned.
     """
-    from src.config.policy import load as load_policy
+    from src.config_readers.policy import load as load_policy
     from src.db.settings import load as load_connection
 
     subscription = (

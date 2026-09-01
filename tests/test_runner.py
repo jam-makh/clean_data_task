@@ -22,8 +22,8 @@ the chain.
 
 import pytest
 
-from src.config import runtime
-from src.config.errors import ConfigError
+from src.config_readers import runtime
+from src.config_readers.errors import ConfigError
 from src.db import contract
 from src.db import settings as db_settings
 
@@ -143,7 +143,7 @@ def test_the_fingerprint_travels_with_the_run(first_run):
     "Same input, same rules, same answer" has to be checkable from the run's
     own record, or the event says a run happened without saying under what.
     """
-    from src.config.fingerprint import short_fingerprint
+    from src.config_readers.fingerprint import short_fingerprint
 
     assert first_run.fingerprint == short_fingerprint()
 

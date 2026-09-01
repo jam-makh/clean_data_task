@@ -7,14 +7,14 @@ list, so the three cannot drift, and enforces the point-in-time rule.
 This table is modelling features only. Pipeline diagnostics -- how many
 accounts contributed a balance, whether one was carried forward, how many
 transactions declared no direction -- are still computed, and are reported by
-``src.features.report``. They are deliberately not columns here: a feature
+``features.report``. They are deliberately not columns here: a feature
 table that mixes predictors with observability metrics hands Stage 4 columns
 it has to know to ignore.
 """
 
 from dataclasses import dataclass
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 TABLE = "feature_store_monthly"
 
@@ -37,8 +37,6 @@ KEY = ("user_id", "month")
 KEY_COLUMN, BEFORE_MONTH, CALENDAR, TARGET = (
     "KEY", "BEFORE_MONTH", "CALENDAR", "TARGET",
 )
-
-KNOWN_AT = (KEY_COLUMN, BEFORE_MONTH, CALENDAR, TARGET)
 
 # Types per logical kind, so a money column cannot be declared NUMERIC in one
 # place and DOUBLE PRECISION in another.
@@ -389,7 +387,7 @@ def verify(frame, categories: tuple[str, ...]) -> None:
         raise ConfigError(
             f"{TABLE} carries {len(undeclared)} column(s) with no declared "
             f"known_at: {', '.join(undeclared)}. Declare them in "
-            f"src/features/contract.py or drop them before writing."
+            f"features/contract.py or drop them before writing."
         )
 
 

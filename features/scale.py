@@ -8,7 +8,7 @@ the users rather than five times the history per user.
 
 from pyspark.sql import functions as F
 
-from src.config.errors import ConfigError
+from src.config_readers.errors import ConfigError
 
 # What distinguishes one copy's keys from another's. It is no longer the spelling
 # of the replicated key -- user_id and account_id are UUID columns now, and

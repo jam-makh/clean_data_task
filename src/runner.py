@@ -38,9 +38,9 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from src.config import runtime
-from src.config.errors import ConfigError
-from src.config.fingerprint import short_fingerprint
+from src.config_readers import runtime
+from src.config_readers.errors import ConfigError
+from src.config_readers.fingerprint import short_fingerprint
 from src.db.settings import Database as Connection
 from src.utils.report import CleaningReport
 
@@ -281,7 +281,7 @@ def run_rows(
     :raises ConfigError: If the profile cannot be detected, or has no steps
         ported to Spark.
     """
-    from src.config.policy import load as load_policy
+    from src.config_readers.policy import load as load_policy
     from src.db import raw, writer
     from src.db.settings import load as load_connection
     from src.jobs import job_id_from_digest

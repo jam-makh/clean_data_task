@@ -15,10 +15,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.config import policy as policy_module
-from src.config import runtime as runtime_module
-from src.config.errors import ConfigError
-from src.config.fingerprint import (
+from src.config_readers import policy as policy_module
+from src.config_readers import runtime as runtime_module
+from src.config_readers.errors import ConfigError
+from src.config_readers.fingerprint import (
     FINGERPRINTED,
     config_fingerprint,
     short_fingerprint,
