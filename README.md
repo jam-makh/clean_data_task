@@ -80,7 +80,7 @@ That runs the **Spark** path: it reads `data/raw/forecast_balance_data.csv`, cle
 Or read, clean and report while writing nothing at all:
 
 ```bash
-make run-dry
+python main.py --dry-run
 ```
 
 There is one engine. The pipeline was built twice — once in pandas as the Stage 1 reference, once on Spark as the Stage 2 deliverable — and held to the same answers by a parity harness that ran both over the same sample and compared column for column. It passed on all eleven stages, which is what made the pandas half redundant: a second implementation kept only to be compared against is a second implementation to maintain. It has been removed, and Spark is the pipeline.
@@ -218,12 +218,13 @@ the id the database allocated — the id is the whole product of this step,
 because it is what travels on Kafka.
 
 ```bash
-python -m scripts.seed_raw --count 1 --dirty
+python -m scripts.seed_raw --count 1
 ```
 
-`--dirty` picks a row that at least one stage will visibly change, so the
-consumer's output shows the cleaning doing something rather than finding
-nothing. To do this step by hand instead, any `INSERT` works — the consumer
+Raise `--count` and vary `--offset` to seed a wider, more arbitrary sample;
+some of those rows will already be clean, and the stages reporting nothing to
+do over them is a real result. To do this step by hand instead, any `INSERT`
+works — the consumer
 cannot tell the difference:
 
 ```bash
@@ -677,7 +678,7 @@ make db-reset
 ```
 
 Drops all three tables and rebuilds them from the schema files -- destructive,
-which is why it is separate from `db-migrate`.
+which is why it is separate from the writer's own idempotent migrate.
 
 ```bash
 make kafka-topic
@@ -686,19 +687,19 @@ make kafka-topic
 Creates both topics. Auto-create is off on purpose, so a producer aimed at a
 typo'd topic fails loudly instead of inventing one nobody consumes.
 
-#### 3. Put a dirty row in
+#### 3. Put some rows in
 
 ```bash
-make seed-raw N=3 DIRTY=1 OFFSET=0
+make seed-raw N=3 OFFSET=0
 ```
 
 Cuts 3 rows from the extract and inserts them verbatim, then prints their ids.
-`DIRTY=1` picks rows a stage will visibly change -- a blank settlement date, a
-missing balance, an amount written `5.727.580,00`, a merchant name still
-wearing its terminal prefix -- because a run that cleans an already-clean row
-looks exactly like a run that did nothing. `OFFSET` skips that many source rows
-first; the scan always starts at the top of the file, so without it every run
-seeds the same transactions.
+`OFFSET` skips that many source rows first; the scan always starts at the top
+of the file, so without it every run seeds the same transactions. Between `N`
+and `OFFSET` you choose how wide and how arbitrary the sample is -- some rows
+carry a blank settlement date, a missing balance, an amount written
+`5.727.580,00` or a merchant name still wearing its terminal prefix, and some
+are already fine. Which is which is the pipeline's answer to give.
 
 ```bash
 docker exec -it cleaning-postgres psql -U pipeline -d transactions -c "select id, txn_id, txn_amount, txn_date_time, settle_date, merchant_name, status from raw_transactions order by id desc limit 3;"
@@ -788,7 +789,7 @@ leaves the consumer group deliberately, so a restart rejoins immediately rather
 than waiting for the broker to time the old member out.
 
 ```bash
-make seed-raw N=2 DIRTY=1 OFFSET=9000
+make seed-raw N=2 OFFSET=9000
 ```
 
 Inserts two more rows while nothing is listening -- they sit at `PENDING`.
@@ -811,7 +812,7 @@ Restart it and watch it drain the backlog.
 #### 9. The same rules over the whole file
 
 ```bash
-make run-dry
+python main.py --dry-run
 ```
 
 Reads the full extract, runs every cleaning stage, prints the report, writes

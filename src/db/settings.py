@@ -81,8 +81,25 @@ class Database:
             deliberately not in it -- they go in the properties dict instead,
             because a URL ends up in log lines and exception messages and a
             password in one of those is a password in the logs.
+
+            ``stringtype=unspecified`` is what lets a Spark ``string`` column
+            land in a Postgres ``uuid`` one. Spark has no uuid type, so the
+            identifier columns travel as strings; the driver would otherwise
+            bind them with an explicit varchar OID, and Postgres does not
+            implicitly cast text to uuid in a parameter position. Unspecified
+            leaves the type to the server, which then coerces the literal --
+            and rejects a malformed id at the load, naming the value.
+
+            This is narrower than the name suggests. Every non-string column
+            is already cast on the Spark side by ``src/db/contract.py`` before
+            it reaches JDBC, so those bind as Long/Date/BigDecimal and are
+            untouched; the only string parameter meeting a non-text column is
+            an identifier. The option is inert for the two JDBC readers.
         """
-        return f"jdbc:postgresql://{self.host}:{self.port}/{self.database}"
+        return (
+            f"jdbc:postgresql://{self.host}:{self.port}/{self.database}"
+            "?stringtype=unspecified"
+        )
 
     @property
     def jdbc_properties(self) -> dict[str, str]:

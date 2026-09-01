@@ -22,8 +22,8 @@ reasoning -- is written down in both places.
 from src.config.errors import ConfigError
 from src.db.settings import Database, connect
 
-from src.features import contract
-from src.features.settings import FeatureSettings
+from features import contract
+from features.settings import FeatureSettings
 
 # Every statement here goes through the project's one connection helper, which
 # owns the "psycopg2 is missing" message. Note what its context manager does:
@@ -65,20 +65,22 @@ def migrate(
             cursor.execute(contract.create_staging(live, staging))
 
 
-def live_columns(database: Database, table: str) -> list[str]:
+def live_columns(database: Database, table: str) -> list[tuple[str, str]]:
     """
     :param database: Where to look.
     :param table: The table to describe.
-    :returns: Its column names in ordinal order, empty if it does not exist.
+    :returns: ``(name, data_type)`` pairs in ordinal order, empty if the table
+        does not exist. The type comes back because a column can drift in type
+        as well as in existence -- see ``verify_shape``.
     """
     with _connect(database) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT column_name FROM information_schema.columns "
+                "SELECT column_name, data_type FROM information_schema.columns "
                 " WHERE table_name = %s ORDER BY ordinal_position",
                 (table,),
             )
-            return [row[0] for row in cursor.fetchall()]
+            return [(row[0], row[1]) for row in cursor.fetchall()]
 
 
 def verify_shape(
@@ -100,6 +102,12 @@ def verify_shape(
     meaning, and a stale one is worse than a missing one because it looks
     like data.
 
+    Types are compared as well as names, for the same reason. A table built
+    before ``user_id`` became UUID still has every declared column and would
+    pass a name-only check, and the failure would then surface as a type error
+    inside the merge -- a message about a statement, far from the cause. Here
+    it is a message about the table, with the fix in it.
+
     :param database: Where the table lives.
     :param rules: The vocabularies, which fix the spending columns.
     :param config: The build settings, which name the table.
@@ -107,18 +115,32 @@ def verify_shape(
         ones, naming the drift and how to clear it.
     """
     table = config.database.table
-    present = live_columns(database, table)
-    if not present:
+    live = live_columns(database, table)
+    if not live:
         return
 
+    present = [name for name, _ in live]
+    types = dict(live)
+
     declared = contract.names(rules.categories)
+    declared_types = contract.postgres_types(rules.categories)
+
     stale = [name for name in present if name not in declared]
     missing = [name for name in declared if name not in present]
+    wrong = [
+        f"{name} is {types[name]}, declared {declared_types[name]}"
+        for name in declared
+        if name in types and types[name] != declared_types[name]
+    ]
 
-    if not stale and not missing:
+    if not stale and not missing and not wrong:
         return
 
     problems = []
+    if wrong:
+        problems.append(
+            f"{len(wrong)} column(s) of the wrong type: {'; '.join(wrong)}"
+        )
     if stale:
         problems.append(
             f"{len(stale)} column(s) the contract no longer declares: "

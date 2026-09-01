@@ -1,11 +1,17 @@
 """
 The pipeline diagnostics, counted once at the end of the build.
 
-These numbers used to be columns on the feature table -- how many accounts
+These numbers describe the build rather than the customer -- how many accounts
 contributed a balance, whether one was carried forward, how many transactions
-declared no direction. They are not features: they describe the build rather
-than the customer, and a model handed them has to be told to ignore them. They
-belong here, and from here they go into the run report.
+declared no direction, which MCCs went unmapped. They are not features, and a
+model handed them would have to be told to ignore them; they are here to answer
+"why do this run's numbers look like that". ``builder.manifest`` counts them
+over the finished frames and hands them to ``report``, which is the only reader.
+
+Three entry points, one per grain: ``transactions`` over the cleaned
+transactions, ``account_months`` over the dense account spine after
+carry-forward, ``user_months`` over the monthly facts before they are lagged.
+Each returns plain Python, ready to serialise.
 
 The collection pattern is ``src.spark.audit``'s, for the reason that file
 gives: a Spark frame is a recipe, not a result, so counting one metric at a
@@ -17,8 +23,9 @@ existing group costs nothing.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from src.features import activity, balances, flows, spending
-from src.features.settings import BalanceSettings
+from features import activity, balances, flows
+from features import spending
+from features.settings import BalanceSettings
 from src.rules import loader
 from src.rules.loader import CREDIT, DEBIT
 from src.rules.store import Rules

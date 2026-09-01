@@ -12,9 +12,10 @@ import json
 
 import pytest
 
+from features import builder, contract, diagnostics, scale
 from src.db import settings as db_settings
-from src.features import builder, contract, diagnostics, scale, writer
-from src.features import settings as feature_settings
+from features import writer
+from features import settings as feature_settings
 from src.rules import store
 from tests.harness import features
 

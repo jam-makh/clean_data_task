@@ -10,9 +10,10 @@ import datetime
 import pytest
 from pyspark.sql import functions as F
 
-from src.features import balances, builder, contract, monthly_facts
-from src.features import spine, windows
-from src.features import settings as feature_settings
+from features import balances, builder, contract, spine
+from features import monthly_facts
+from features import windows
+from features import settings as feature_settings
 from src.rules import store
 from tests.harness import features
 

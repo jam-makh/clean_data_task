@@ -36,10 +36,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="main.py",
         description=(
             "Clean a transactions dataset on Spark and upsert it to "
-            "Postgres. The source may be an .xlsx workbook or a .csv/.tsv "
-            "extract; which cleaning steps run is decided by the profile, "
-            "detected from the file's own columns unless --profile says "
-            "otherwise."
+            "Postgres. The source is a delimited extract -- .csv, .tsv or "
+            ".txt; the Spark reader does not read workbooks. Which cleaning "
+            "steps run is decided by the profile, detected from the file's "
+            "own columns unless --profile says otherwise."
         ),
     )
     parser.add_argument(

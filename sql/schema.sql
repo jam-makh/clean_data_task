@@ -13,10 +13,15 @@
 -- against its own completion event -- see sync_job_id below.
 
 CREATE TABLE IF NOT EXISTS cleaned_transactions (
+    -- TEXT, not UUID, and alone among the identifiers here in that. The source
+    -- repeats TXN_ID, so src/spark/cleaners/duplicates.py suffixes the members
+    -- of a collision group with "_<n>" -- a collided key is
+    -- `cab394e5-...-fdeb_2`, which no uuid column would accept. The suffix is
+    -- what makes this a primary key at all; the type follows from that.
     txn_id_cleaned               TEXT PRIMARY KEY,
     txn_seq                      BIGINT NOT NULL,
-    account_id                   TEXT NOT NULL,
-    user_id                      TEXT NOT NULL,
+    account_id                   UUID NOT NULL,
+    user_id                      UUID NOT NULL,
     txn_ts                       TIMESTAMP,
     settle_date_cleaned          DATE,
 
@@ -116,13 +121,14 @@ CREATE TABLE IF NOT EXISTS cleaned_transactions (
     -- one CSV across a dozen ids and answer a question nobody asked. The
     -- producer mints it once for the file and stamps every message with it.
     --
-    -- TEXT with a shape check rather than the UUID type, matching how this
-    -- file already handles currency and MCC codes. The reason is practical:
-    -- Spark's JDBC writer sends a string, and Postgres will not implicitly
-    -- cast text to uuid on insert, so a uuid column forces a cast into every
-    -- write path that touches this table. The check keeps the guarantee.
-    sync_job_id                  TEXT NOT NULL
-        CHECK (sync_job_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+    -- UUID, with no shape check: the type is the check. This column once
+    -- carried TEXT plus a regex, on the argument that Spark's JDBC writer
+    -- sends a string and Postgres will not implicitly cast text to uuid. That
+    -- cost is real but it is payable once, at the boundary, rather than
+    -- avoided forever -- `stringtype=unspecified` on the JDBC URL (see
+    -- src/db/settings.py) leaves the parameter type to the server. Please do
+    -- not "restore" the regex; a value that reaches here is a uuid by then.
+    sync_job_id                  UUID NOT NULL,
     -- When the pipeline wrote this row, which is a different question from
     -- when the transaction happened (txn_ts) and from which load carried it
     -- (sync_job_id). Three times, three columns: collapsing any two of them

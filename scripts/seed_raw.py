@@ -4,7 +4,6 @@ about.
 
     python -m scripts.seed_raw --count 3
     python -m scripts.seed_raw --count 5 --offset 1000
-    python -m scripts.seed_raw --dirty
 
 The employee's step 2 is "manually insert a transaction into this table", and
 this is the repeatable version of that. It is a *convenience*, not part of the
@@ -14,9 +13,11 @@ the same extract the batch pipeline reads, dirt intact -- so what the consumer
 prints is the cleaning actually doing something, rather than eleven stages
 reporting nothing to do over a row somebody typed carefully.
 
-Which is what ``--dirty`` is for. Rows in the extract are mostly fine; a run
-that cleans a clean row is indistinguishable from a run that cleans nothing.
-``--dirty`` picks rows that at least one stage will visibly change.
+Which rows you get is ``--count`` and ``--offset``, and nothing else. Whether
+any of them needed cleaning is the pipeline's answer to give, not the seeder's
+to arrange: a wider ``--count`` at an arbitrary ``--offset`` is the honest
+sample, and some of those rows being already clean is a real result rather
+than a failed demo.
 
 Values are inserted exactly as the file spells them, including the empty
 strings. That is the whole contract of the landing table -- see the header of
@@ -42,9 +43,7 @@ from src.db import settings as db_settings
 ENCODING = "utf-8-sig"
 
 
-def rows_from_csv(
-    path: Path, count: int, offset: int = 0, dirty: bool = False
-) -> list[tuple]:
+def rows_from_csv(path: Path, count: int, offset: int = 0) -> list[tuple]:
     """
     Reads rows out of the extract in ``raw.SOURCE_COLUMNS`` order.
 
@@ -55,7 +54,6 @@ def rows_from_csv(
     :param count: How many rows to take.
     :param offset: Data rows to skip first, so two runs can seed different
         rows rather than the same three every time.
-    :param dirty: Take only rows something will visibly clean.
     :returns: One tuple per row, values as text exactly as the file spells
         them.
     :raises ValueError: If the file's header is not the one
@@ -83,50 +81,18 @@ def rows_from_csv(
                 continue
             if len(row) != len(raw.SOURCE_COLUMNS):
                 continue
-            if dirty and not _is_dirty(row):
-                continue
             taken.append(tuple(row))
             if len(taken) >= count:
                 break
 
     if not taken:
-        raise ValueError(
-            f"{path} yielded no rows at offset {offset}"
-            + (" matching --dirty" if dirty else "")
-        )
+        raise ValueError(f"{path} yielded no rows at offset {offset}")
     return taken
 
 
-# Column positions in SOURCE_COLUMNS order, named so the predicate below reads
-# as a sentence rather than as index arithmetic.
-_SETTLE_DATE = raw.SOURCE_COLUMNS.index("SETTLE_DATE")
-_TXN_AMOUNT = raw.SOURCE_COLUMNS.index("TXN_AMOUNT")
-_RUNNING_BALANCE = raw.SOURCE_COLUMNS.index("RUNNING_BALANCE")
+# Column position in SOURCE_COLUMNS order, so the summary line below reads as
+# a sentence rather than as index arithmetic.
 _MERCHANT_NAME = raw.SOURCE_COLUMNS.index("MERCHANT_NAME")
-_MERCHANT_CITY = raw.SOURCE_COLUMNS.index("MERCHANT_CITY")
-_MCC_CODE = raw.SOURCE_COLUMNS.index("MCC_CODE")
-
-
-def _is_dirty(row) -> bool:
-    """
-    :param row: A source row, as text.
-    :returns: True if at least one stage will visibly change it.
-
-    Deliberately shallow. It is a *selector for a demo*, not a validator, and
-    it must not become one -- whether a row is actually dirty is the
-    pipeline's answer to give, and a second opinion here that disagreed would
-    be the more confusing kind of wrong. The four tests below are the dirt that
-    is obvious from the text alone: a missing settlement date, a missing
-    balance, an amount written in a European convention, and a merchant name
-    still wearing its terminal prefix.
-    """
-    if not row[_SETTLE_DATE].strip() or not row[_RUNNING_BALANCE].strip():
-        return True
-    if not row[_MCC_CODE].strip() or not row[_MERCHANT_CITY].strip():
-        return True
-    if "," in row[_TXN_AMOUNT]:
-        return True
-    return ":" in row[_MERCHANT_NAME]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -150,15 +116,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Data rows to skip in the source first, so repeated runs seed "
             "different transactions rather than the same ones."
-        ),
-    )
-    parser.add_argument(
-        "--dirty", action="store_true",
-        help=(
-            "Take only rows a stage will visibly change -- a missing "
-            "settlement date, a missing balance, a European-formatted amount, "
-            "a merchant name with a terminal prefix. Use this when the point "
-            "is to watch the cleaning happen."
         ),
     )
     parser.add_argument(
@@ -189,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        rows = rows_from_csv(source, args.count, args.offset, args.dirty)
+        rows = rows_from_csv(source, args.count, args.offset)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1

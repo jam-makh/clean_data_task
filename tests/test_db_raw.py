@@ -258,16 +258,6 @@ def test_blanks_are_preserved_rather_than_nulled():
                for value in row)
 
 
-def test_dirty_rows_are_ones_a_stage_will_change():
-    if not SOURCE.exists():
-        pytest.skip(f"source file not present: {SOURCE}")
-
-    rows = seed_raw.rows_from_csv(SOURCE, count=5, dirty=True)
-
-    assert len(rows) == 5
-    assert all(seed_raw._is_dirty(row) for row in rows)
-
-
 def test_a_source_whose_header_moved_is_refused(tmp_path):
     """
     A positional read of a reordered file would insert every value one column
@@ -322,13 +312,27 @@ def seeded(database):
     """
     import psycopg2
 
+    import uuid
+
+    # USER_ID, ACCOUNT_ID and TXN_ID carry shape checks, so `user_id-1` will
+    # not go in. They get a uuid derived from the same string, which keeps the
+    # values distinct per row and per column the way the pattern below does,
+    # and keeps them reproducible the way a literal would.
+    def value(name: str, n: int) -> str:
+        plain = f"{name.lower()}-{n}"
+        if name in ("USER_ID", "ACCOUNT_ID", "TXN_ID"):
+            return str(uuid.uuid5(uuid.NAMESPACE_OID, plain))
+        return plain
+
     rows = [
-        tuple(f"{name.lower()}-{n}" for name in raw.SOURCE_COLUMNS)
+        tuple(value(name, n) for name in raw.SOURCE_COLUMNS)
         for n in (1, 2)
     ]
     # One blank and one None among the values, because those are the two
     # states the table exists to keep apart and a round trip that conflated
-    # them would be invisible in a test using only non-empty strings.
+    # them would be invisible in a test using only non-empty strings. The
+    # blank one is USER_ID, which the shape check admits deliberately -- see
+    # the note on those checks in sql/raw_schema.sql.
     rows[0] = ("",) + rows[0][1:-1] + (None,)
 
     ids = raw.insert(database, rows, source="test_db_raw")

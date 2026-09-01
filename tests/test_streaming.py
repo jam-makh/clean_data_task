@@ -202,7 +202,10 @@ def flowed(database, broker, session, assigned):
     """
     import psycopg2
 
-    txn_id = f"stream-test-{uuid.uuid4()}"
+    # A bare uuid: TXN_ID carries a shape check in the landing table, so the
+    # "stream-test-" marker this used to wear cannot go in the id itself. The
+    # `source` column the insert below stamps says the same thing.
+    txn_id = str(uuid.uuid4())
     [row_id] = raw.insert(database, [row_for(txn_id)], source="test_streaming")
 
     dummy_producer.emit(row_id, broker)

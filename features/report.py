@@ -14,8 +14,9 @@ The alternative -- a number here and its documentation in a README -- is a
 pair that drifts.
 """
 
-from src.features import contract, source
-from src.features.settings import FeatureSettings
+from features import contract
+from features import source
+from features.settings import FeatureSettings
 from src.rules.store import Rules
 
 

@@ -10,11 +10,43 @@ from pyspark.sql import functions as F
 
 from src.config.errors import ConfigError
 
-# How a replicated key is spelled. The suffix is the copy number, so the
-# original rows stay recognisable and a key cannot collide across copies.
+# What distinguishes one copy's keys from another's. It is no longer the spelling
+# of the replicated key -- user_id and account_id are UUID columns now, and
+# `<uuid>#3` is not a uuid -- but the string a derived id is computed from.
 SUFFIX = "#"
 
 COPY = "_scale_copy"
+
+
+def _derived_id(column, copy):
+    """
+    A uuid deterministically derived from an id and a copy number.
+
+    MD5 over ``"<id>#<copy>"``, laid out as an RFC-4122 version-3 uuid: the
+    same construction ``uuid.uuid3`` uses, done in Spark SQL rather than a
+    Python UDF because a UDF would serialise every row through the interpreter
+    and this function exists to make a *timing* run bigger.
+
+    Determinism is the property that matters. Copy N of a given user is the
+    same id on every run, so two scaling runs are comparable, and distinct ids
+    stay distinct because the digest input is.
+
+    :param column: Column holding the original id.
+    :param copy: Column holding the copy number.
+    :returns: A column of uuid-shaped strings.
+    """
+    digest = F.md5(F.concat(column, F.lit(SUFFIX), copy.cast("string")))
+
+    # Nibble 13 is the version and nibble 17 the variant; both are fixed rather
+    # than taken from the digest, which is what makes the result a valid uuid
+    # and not merely a hyphenated hash.
+    return F.concat(
+        F.substring(digest, 1, 8), F.lit("-"),
+        F.substring(digest, 9, 4), F.lit("-3"),
+        F.substring(digest, 14, 3), F.lit("-8"),
+        F.substring(digest, 18, 3), F.lit("-"),
+        F.substring(digest, 21, 12),
+    )
 
 
 def replicate(frame, factor: int):
@@ -53,9 +85,7 @@ def replicate(frame, factor: int):
             # Copy zero keeps the original keys, so the replicated run is a
             # strict superset of the real one and the two are comparable.
             F.when(F.col(COPY) == 0, F.col(column)).otherwise(
-                F.concat(
-                    F.col(column), F.lit(SUFFIX), F.col(COPY).cast("string")
-                )
+                _derived_id(F.col(column), F.col(COPY))
             ),
         )
 

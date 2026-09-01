@@ -12,10 +12,11 @@ import dataclasses
 import json
 import sys
 
+from features import builder
 from src.config.errors import ConfigError
 from src.db import settings as db_settings
-from src.features import builder, scale
-from src.features import settings as feature_settings
+from features import scale
+from features import settings as feature_settings
 from src.rules import store
 from src.spark import spark_setup
 

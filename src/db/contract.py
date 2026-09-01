@@ -50,6 +50,10 @@ KEY = "txn_id_cleaned"
 COLUMNS: dict[str, str | None] = {
     "TXN_ID_CLEANED": None,
     "TXN_SEQ": "long",
+    # None even though both are UUID columns in sql/schema.sql. Spark has no
+    # uuid type to cast to, so the string travels as-is and Postgres coerces it
+    # -- see the stringtype note in src/db/settings.py. There is nothing to put
+    # here; the absence is the decision.
     "ACCOUNT_ID": None,
     "USER_ID": None,
     "TXN_TS": None,

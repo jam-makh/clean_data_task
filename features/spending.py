@@ -12,7 +12,7 @@ tables; nothing about either is named in this file.
 
 from pyspark.sql import functions as F
 
-from src.features.flows import direction_map
+from features.flows import direction_map
 from src.rules.loader import DEBIT
 from src.rules.store import Rules
 

@@ -12,8 +12,32 @@ first row happened to hold.
 """
 
 import datetime
+import uuid
 
-from src.features import source
+from features import source
+
+# Namespace for the fixture's identifiers. Any constant uuid does; this one is
+# the fixture's own so a synthetic id cannot collide with a real one.
+_NAMESPACE = uuid.UUID("9f2c1a4e-7b30-5d68-a1c2-0e5f8d3b647a")
+
+
+def handle(name: str) -> str:
+    """
+    The uuid a short fixture handle stands for.
+
+    ``user_id`` and ``account_id`` are UUID columns, so the fixture cannot key
+    on ``"u1"`` any more. The tests still say ``"u1"`` -- a six-row frame you
+    reason about by hand is unreadable spelled in uuids -- and this is the one
+    place the two representations meet.
+
+    uuid5, so a handle is the same id on every run and in every test. Nothing
+    depends on the specific value; what matters is that it is stable and that
+    distinct handles stay distinct.
+
+    :param name: A short handle such as ``"u1"`` or ``"u1a"``.
+    :returns: Its uuid, as a string.
+    """
+    return str(uuid.uuid5(_NAMESPACE, name))
 
 # The month every account in the fixture is silent, so the dense spine and the
 # carry-forward have something to prove.
@@ -66,8 +90,8 @@ def transaction(
     """
     One cleaned transaction, spelled the way ``source`` hands them over.
 
-    :param user: Owning user.
-    :param account: Owning account.
+    :param user: Owning user, as a short handle -- see ``handle``.
+    :param account: Owning account, likewise.
     :param month: Month as ``YYYY-MM``.
     :param shape: A key of ``SHAPES``.
     :param amount: Unsigned magnitude in USD.
@@ -84,8 +108,8 @@ def transaction(
     signed = amount if code in ("21", "26") else -amount
 
     return {
-        "user_id": user,
-        "account_id": account,
+        "user_id": handle(user),
+        "account_id": handle(account),
         "txn_seq": int(seq),
         "txn_ts": datetime.datetime(year, month_number, day, 10, 0, 0),
         "billing_amount": float(signed),

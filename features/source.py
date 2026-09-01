@@ -51,6 +51,15 @@ ACTIVITY = ("mcc_code_cleaned", "merchant_name_cleaned")
 
 COLUMNS = KEYS + FLOWS + BALANCES + ACTIVITY
 
+# Columns that are UUID in Postgres and must be string in the frame.
+#
+# Spark's Postgres dialect reports uuid as JDBC OTHER, and whether it folds
+# that to StringType is a property of the dialect, not of this code. Casting in
+# the projection makes the read independent of that: the driver sees text, and
+# a dialect change becomes a non-event rather than a Stage 3 that dies at
+# schema resolution before it has read a row.
+UUID_COLUMNS = ("user_id", "account_id")
+
 # Columns Stage 3 must never read, listed so the ban is testable rather than
 # a matter of remembering. Each is native-currency and not comparable across
 # accounts; they stay in Stage 2 for diagnostics.
@@ -154,9 +163,17 @@ def from_database(spark, database: Database, table: str = TABLE):
     :param table: The table to read.
     :returns: One row per transaction, typed, with ``month`` derived.
     """
+    # A subquery rather than the bare table name, so the uuid columns arrive as
+    # text and the projection is stated to the database instead of to Spark --
+    # the same shape src/db/raw.py reads with. The .select() that follows is
+    # then an assertion that the two lists agree, which is worth keeping.
+    projection = ", ".join(
+        f"{column}::text AS {column}" if column in UUID_COLUMNS else column
+        for column in COLUMNS
+    )
     frame = spark.read.jdbc(
         url=database.jdbc_url,
-        table=table,
+        table=f"(SELECT {projection} FROM {table}) AS cleaned",
         properties=database.jdbc_properties,
     ).select(*COLUMNS)
 

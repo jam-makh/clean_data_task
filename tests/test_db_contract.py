@@ -63,6 +63,35 @@ def test_the_schema_parses():
     assert columns["fx_rate"] == "NUMERIC(20,10)"
 
 
+def test_the_identifiers_are_uuid_columns():
+    """
+    The three uuid-valued identifiers are typed as uuid, not as text with a
+    regex. That was once the other way round, and the argument for text --
+    Spark's JDBC writer sends a string -- is answered by
+    ``stringtype=unspecified`` on the JDBC URL rather than by weakening the
+    column. Asserted here so a revert is a failing test and not a quiet one.
+
+    txn_id_cleaned is deliberately not in this list: the duplicates stage
+    suffixes colliding ids with "_<n>", so it is text and must stay text.
+    """
+    columns = schema_columns()
+
+    assert columns["account_id"] == "UUID"
+    assert columns["user_id"] == "UUID"
+    assert columns["sync_job_id"] == "UUID"
+
+    # And the regex that used to stand in for the type is gone, rather than
+    # both being carried and one of them slowly going stale.
+    body = SCHEMA.read_text(encoding="utf-8")
+    line = next(
+        line for line in body.splitlines()
+        if line.strip().startswith("sync_job_id")
+    )
+    assert "CHECK" not in line, (
+        "sync_job_id is a uuid column; the shape check is redundant"
+    )
+
+
 def test_every_table_column_is_written_or_self_filled():
     """
     Nothing in the table is left unaccounted for.

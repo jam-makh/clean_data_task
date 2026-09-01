@@ -1,15 +1,7 @@
-# Local infrastructure for the Stage 2 pipeline: the database it persists to
-# and the broker it announces itself on. Spark is deliberately NOT here --
-# it runs in the project venv on the host, so the edit-run loop stays fast and
-# a debugger can attach to the driver.
-#
+# Local infrastructure for the pipeline
+
 # Kafka runs in KRaft mode: it is its own controller, and there is no
-# ZooKeeper container. Most Kafka tutorials still show one, because ZooKeeper
-# was mandatory before Kafka 3.3 and only fully removed in 4.0. If you find a
-# guide that starts by running `zookeeper-server-start`, it predates this
-# setup and its instructions will not match what is below.
-#
-# The image also does the KRaft storage format step for you. Running the
+# ZooKeeper container. The image also does the KRaft storage format step. Running the
 # downloaded distribution by hand instead means generating a cluster UUID and
 # formatting the log directory first, before the broker will start at all --
 # see the notes accompanying this file for that path.

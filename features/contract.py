@@ -46,7 +46,17 @@ KNOWN_AT = (KEY_COLUMN, BEFORE_MONTH, CALENDAR, TARGET)
 # There is no SHARE kind and no FLAG kind. Both existed for columns this table
 # no longer carries -- the spending shares, which are derivable from the
 # category amounts and the total, and the carried-forward flag, which is a
-# diagnostic. A kind with no column is drift waiting to happen.
+# diagnostic. A kind with no column is drift waiting to happen. That rule is
+# also why IDENTIFIER means "uuid identifier" rather than there being a separate
+# UUID kind alongside it: user_id is IDENTIFIER's only column, so splitting the
+# kind would leave one of the two halves empty.
+#
+# IDENTIFIER is the one kind whose two maps disagree, and the disagreement is
+# deliberate. Spark has no uuid type, so the frame carries a string; Postgres
+# gets UUID, and the conversion happens at the JDBC boundary -- see the
+# stringtype note in src/db/settings.py. Making the Spark side match the
+# Postgres side is not possible, and making the Postgres side match Spark is
+# what this change undid.
 MONEY, COUNT, DATE, IDENTIFIER = "MONEY", "COUNT", "DATE", "IDENTIFIER"
 
 _SPARK = {
@@ -60,7 +70,7 @@ _POSTGRES = {
     MONEY: "NUMERIC(18, 4)",
     COUNT: "INTEGER",
     DATE: "DATE",
-    IDENTIFIER: "TEXT",
+    IDENTIFIER: "UUID",
 }
 
 
@@ -288,6 +298,24 @@ def names(categories: tuple[str, ...]) -> list[str]:
     :returns: Every column name, in output order.
     """
     return [column.name for column in columns(categories)]
+
+
+def postgres_types(categories: tuple[str, ...]) -> dict[str, str]:
+    """
+    The declared type of each column, spelled the way Postgres reports it.
+
+    Base type only, lowercased: ``information_schema.columns.data_type`` says
+    ``numeric`` where this file says ``NUMERIC(18, 4)``, and the precision is
+    already asserted by the column declaration itself. What this is for is
+    catching a *different* type, not a different precision.
+
+    :param categories: The spending vocabulary, in display order.
+    :returns: Column name to base type, e.g. ``{"user_id": "uuid"}``.
+    """
+    return {
+        column.name: column.postgres_type.split("(")[0].strip().lower()
+        for column in columns(categories)
+    }
 
 
 def feature_names(categories: tuple[str, ...]) -> list[str]:

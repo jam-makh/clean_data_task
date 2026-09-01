@@ -33,11 +33,12 @@ from dataclasses import dataclass, field
 from pyspark import StorageLevel
 from pyspark.sql import functions as F
 
+from features import activity, balances, contract, monthly_facts, report, source, spine, windows
 from src.config.errors import ConfigError
 from src.db.settings import Database
-from src.features import activity, balances, contract, diagnostics
-from src.features import monthly_facts, report, source, spine, windows, writer
-from src.features.settings import FeatureSettings
+from features import diagnostics
+from features import writer
+from features.settings import FeatureSettings
 from src.rules.store import Rules
 
 TARGET = "target_closing_balance_usd"

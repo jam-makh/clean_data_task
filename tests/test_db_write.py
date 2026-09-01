@@ -25,13 +25,25 @@ from src.db import settings as db_settings
 
 pytestmark = [pytest.mark.db, pytest.mark.spark]
 
-# Shaped like the real thing -- the CHECK constraints reject anything that is
-# not -- but unmistakably synthetic in the key, so a stray row left behind by a
-# killed run is identifiable rather than mistaken for data.
+# Shaped like the real thing -- the column types and the CHECK constraints
+# reject anything that is not -- but unmistakably synthetic in the primary key,
+# so a stray row left behind by a killed run is identifiable rather than
+# mistaken for data.
+#
+# The account and user ids can no longer carry that marker: they are UUID
+# columns, and `USR-T1` is not a uuid. They are fixed literals rather than
+# uuid4() so the rows stay reproducible between runs, which is what lets the
+# idempotence test below assert on them. TXN_ID_CLEANED is still TEXT -- see
+# the note in sql/schema.sql -- so it keeps the marker for both of them.
+ACC_T1 = "aaaaaaaa-0000-4000-8000-000000000001"
+ACC_T2 = "aaaaaaaa-0000-4000-8000-000000000002"
+USR_T1 = "bbbbbbbb-0000-4000-8000-000000000001"
+USR_T2 = "bbbbbbbb-0000-4000-8000-000000000002"
+
 ROWS = [
-    ("test-row-0001", "1", "ACC-T1", "USR-T1", "USD", "LB", "00", "5411"),
-    ("test-row-0002", "2", "ACC-T1", "USR-T1", "USD", "MA", "26", "6012"),
-    ("test-row-0003", "3", "ACC-T2", "USR-T2", "EUR", "LB", "00", "4814"),
+    ("test-row-0001", "1", ACC_T1, USR_T1, "USD", "LB", "00", "5411"),
+    ("test-row-0002", "2", ACC_T1, USR_T1, "USD", "MA", "26", "6012"),
+    ("test-row-0003", "3", ACC_T2, USR_T2, "EUR", "LB", "00", "4814"),
 ]
 
 

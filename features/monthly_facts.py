@@ -14,9 +14,10 @@ by the run report.
 
 from pyspark.sql import functions as F
 
-from src.features import activity, balances, flows, spending
-from src.features.settings import FeatureSettings
-from src.features.windows import Lagged
+from features import activity, balances, flows
+from features import spending
+from features.settings import FeatureSettings
+from features.windows import Lagged
 from src.rules.store import Rules
 
 # Facts that are zero in a month with no transactions. A quiet month did not

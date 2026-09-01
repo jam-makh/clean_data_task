@@ -14,7 +14,7 @@ report can read them, and they are not feature columns.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from src.features.settings import BalanceSettings
+from features.settings import BalanceSettings
 
 # The USD balance this stage publishes, and the column every lag of it is
 # taken from. The target reads the same column, so the label and its own
@@ -37,11 +37,7 @@ DIAGNOSTICS = (CONTRIBUTING, WITH_BALANCE, IS_CARRIED)
 
 def month_end_by_account(frame, balance: BalanceSettings):
     """
-    The last eligible balance each account states in each month.
-
-    Ordered by ``txn_seq``, not ``txn_ts``: the sequence is what the Stage 2
-    balance chain was reconstructed along and it is total, where timestamps
-    tie and some rows carry no time of day at all.
+    The last eligible balance each account states in each month ordered by txn_seq
 
     Taken as ``max`` over a struct rather than a sorted window. Both find the
     same row; the aggregate is a hash aggregate with no ordering stage behind

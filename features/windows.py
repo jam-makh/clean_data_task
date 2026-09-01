@@ -16,7 +16,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from src.config.errors import ConfigError
-from src.features.settings import WindowSettings
+from features.settings import WindowSettings
 
 # The grain a window is taken within. A frame without a partition would walk
 # off the end of one user and into the start of the next.

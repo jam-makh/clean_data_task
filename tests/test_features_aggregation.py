@@ -12,9 +12,10 @@ The build runs on Spark; the assertions read a dozen rows back with
 
 import pytest
 
-from src.features import activity, balances, flows, spending, spine
-from src.features import builder
-from src.features import settings as feature_settings
+from features import activity, balances, flows, spending
+from features import spine
+from features import builder
+from features import settings as feature_settings
 from src.rules import store
 from tests.harness import features
 
@@ -62,13 +63,15 @@ def facts(build):
 def month_of(table: dict, user: str, month: str) -> dict:
     """
     :param table: A frame collected by ``rows_by_key``.
-    :param user: Which user.
+    :param user: Which user, as a fixture handle -- the frame holds the uuid
+        ``features.handle`` maps it to, and translating here is what keeps the
+        tests below readable.
     :param month: Which month, as ``YYYY-MM-DD``.
     :returns: That single row.
     """
     import datetime
 
-    key = (user, datetime.date.fromisoformat(month))
+    key = (features.handle(user), datetime.date.fromisoformat(month))
     assert key in table, f"expected a row for {user} {month}"
     return table[key]
 
@@ -82,7 +85,9 @@ def test_a_month_with_no_transactions_still_gets_a_row(source_frame):
     users = spine.user_months(accounts)
 
     april = users.filter(users["month"] == features.QUIET_MONTH).collect()
-    assert sorted(row["user_id"] for row in april) == ["u1", "u2"]
+    assert sorted(row["user_id"] for row in april) == sorted(
+        [features.handle("u1"), features.handle("u2")]
+    )
 
     # And the spine is contiguous, not just present: six months each.
     sizes = {
@@ -92,7 +97,7 @@ def test_a_month_with_no_transactions_still_gets_a_row(source_frame):
         .withColumnRenamed("count", "months")
         .collect()
     }
-    assert sizes == {"u1": 6, "u2": 6}
+    assert sizes == {features.handle("u1"): 6, features.handle("u2"): 6}
 
 
 def test_a_quiet_month_is_zero_flow_and_a_carried_balance(table, facts):

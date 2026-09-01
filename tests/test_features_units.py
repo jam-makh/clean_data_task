@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from pyspark.sql import functions as F
 
-from src.features import source
+from features import source
 from tests.harness import features
 
 # Where the build lives. Parsed rather than imported, because what is under

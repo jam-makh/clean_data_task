@@ -28,7 +28,7 @@ def counterparties(frame=None):
     The merchant name on each row, blanked where it names no counterparty.
 
     ``CARD SETTLEMENT``, ``STANDING ORDER`` and ``INTERNAL TRANSFER`` occupy
-    the merchant column without being merchants -- they describe money moving
+    the merchant column without being merchants, they describe money moving
     inside the bank. Counting them would make a user with three sweep rules
     look like a user shopping at three merchants.
 

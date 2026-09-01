@@ -34,9 +34,20 @@ CREATE TABLE IF NOT EXISTS raw_transactions (
     -- The 22 source columns, in the order the extract's header states them,
     -- so a person reading this file and a person reading the CSV are looking
     -- at the same list. tests/test_db_raw.py asserts that they still are.
-    user_id               TEXT,
-    account_id            TEXT,
-    txn_id                TEXT,
+    -- The three identifiers are uuid-shaped in the extract, and stay TEXT here
+    -- for the reason at the head of this file -- typing happens once, on the
+    -- way out. What they carry instead is the shape check sql/schema.sql uses,
+    -- so a malformed id is named at the landing table rather than at the JDBC
+    -- write two stages later, where the message is about a partition.
+    --
+    -- The `= ''` arm is not slack. Blank is a value this table exists to keep
+    -- distinct from NULL, and a bare regex would make an empty USER_ID an
+    -- INSERT error -- pre-empting exactly the judgement the reader is forbidden
+    -- to make. NULL passes a CHECK on its own. So the constraint says: if this
+    -- claims to be an id, it is shaped like one.
+    user_id               TEXT CHECK (user_id = '' OR user_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+    account_id            TEXT CHECK (account_id = '' OR account_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+    txn_id                TEXT CHECK (txn_id = '' OR txn_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
     txn_seq               TEXT,
     txn_date_time         TEXT,
     settle_date           TEXT,

@@ -15,7 +15,9 @@ def test_defaults_stand_in_for_an_absent_environment():
 
     assert database.host == "localhost"
     assert database.port == 5433
-    assert database.jdbc_url == "jdbc:postgresql://localhost:5433/transactions"
+    assert database.jdbc_url == (
+        "jdbc:postgresql://localhost:5433/transactions?stringtype=unspecified"
+    )
 
 
 def test_the_environment_is_read():
@@ -29,8 +31,26 @@ def test_the_environment_is_read():
 
     database = settings.load(env=values)
 
-    assert database.jdbc_url == "jdbc:postgresql://db.internal:6000/warehouse"
+    assert database.jdbc_url == (
+        "jdbc:postgresql://db.internal:6000/warehouse?stringtype=unspecified"
+    )
     assert database.jdbc_properties["user"] == "loader"
+
+
+def test_the_url_lets_a_string_reach_a_uuid_column():
+    """
+    account_id, user_id and sync_job_id are UUID columns and Spark has no uuid
+    type, so the identifiers travel as strings. Without this option the driver
+    types the parameter as varchar and Postgres refuses the implicit cast, and
+    every write to cleaned_transactions dies per-partition.
+
+    Asserted separately from the two URL comparisons above so that the reason
+    it is there sits next to it, rather than being one query parameter someone
+    trims while tidying a long expected string.
+    """
+    database = settings.load(env={})
+
+    assert "stringtype=unspecified" in database.jdbc_url
 
 
 def test_a_non_numeric_port_is_rejected_by_name():
