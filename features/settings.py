@@ -67,6 +67,8 @@ class FeatureSettings:
     :param output: Where the manifest lands.
     :param database: Where the feature table lands.
     :param scale_factor: Replication factor for the scaling run.
+    :param scale_table: Where a scaling run's table lands, kept apart from the
+        live one so a benchmark cannot leave synthetic rows in it.
     """
 
     balance: BalanceSettings
@@ -74,6 +76,7 @@ class FeatureSettings:
     output: OutputSettings
     database: DatabaseSettings
     scale_factor: int
+    scale_table: str
 
 
 def _section(data: dict, name: str, path: Path) -> dict:
@@ -154,6 +157,15 @@ def load(path: Path = DEFAULT_PATH) -> FeatureSettings:
         raise ConfigError(f"{path}: missing required key database.table")
 
     scale = _section(data, "scale", path)
+    if "table" not in scale:
+        raise ConfigError(f"{path}: missing required key scale.table")
+    if scale["table"] == database["table"]:
+        raise ConfigError(
+            f"{path}: scale.table and database.table are both "
+            f"{scale['table']!r}. They have to differ -- the whole point of "
+            f"the separate table is that a scaling run's synthetic users "
+            f"never reach the table Stage 4 reads."
+        )
 
     return FeatureSettings(
         balance=BalanceSettings(
@@ -166,4 +178,5 @@ def load(path: Path = DEFAULT_PATH) -> FeatureSettings:
             batch_size=_positive_int(database, "batch_size", "database", path),
         ),
         scale_factor=_positive_int(scale, "factor", "scale", path),
+        scale_table=str(scale["table"]),
     )

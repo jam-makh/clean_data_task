@@ -7,7 +7,7 @@ PYTHON ?= python
 .PHONY: help run test test-fast verify kafka-topic db-reset db-rules seed-raw emit consumer fingerprint features features-reset features-scale clean
 
 help:
-	@$(PYTHON) -c "print('Usage:\n  make run         Clean the extract on Spark and upsert it (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make seed-raw    Insert raw rows, print their ids (N=3 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make fingerprint One line describing cleaned_transactions\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make db-rules    Seed the Stage 3 rule tables from src/rules/json/\n  make features    Build the Stage 3 feature table (upserts Postgres)\n  make features-reset  Drop the feature table and build it again\n  make features-scale  Rebuild it on the 5x source and report the timings\n  make clean       Remove cache and build artifacts')"
+	@$(PYTHON) -c "print('Usage:\n  make run         Clean the extract on Spark and upsert it (main.py)\n  make test        Run the test suite\n  make test-fast   Run it without the tests that start a JVM\n  make verify      Check Java, Spark, Postgres and Kafka are up\n  make seed-raw    Insert raw rows, print their ids (N=3 OFFSET=5000)\n  make emit        Announce a row to Kafka (ID=42 or PENDING=1)\n  make fingerprint One line describing cleaned_transactions\n  make consumer    Listen and clean arriving rows (ONCE=1)\n  make db-rules    Seed the Stage 3 rule tables from src/rules/json/\n  make features    Build the Stage 3 feature table (upserts Postgres)\n  make features-reset  Drop the feature table and build it again\n  make features-scale  Time the build at 1x, 2x, 3x, 5x and chart the growth\n  make clean       Remove cache and build artifacts')"
 
 run:
 	$(PYTHON) main.py
@@ -87,11 +87,10 @@ seed-raw:
 
 # Build the feature table. Reads cleaned_transactions and the rule tables from
 # Postgres, runs the whole build on Spark, and upserts the result into
-# feature_store_monthly. `make features RULES=json` still reads the vocabularies from src/rules/json/
-# rather than the rule tables, which is the one remaining escape hatch and is
-# about the rules, not the data.
+# feature_store_monthly. No flags: the vocabularies come from the rule tables
+# `make db-rules` seeds, and the destination comes from config/features.yaml.
 features:
-	$(PYTHON) features_main.py --rules $(or $(RULES),db) $(if $(NODB),--no-database,)
+	$(PYTHON) features_main.py
 
 # Drop the feature table and build it again. This is how a column added to or
 # removed from features/contract.py -- or retyped, as user_id was when it became
@@ -105,10 +104,19 @@ features-reset:
 	$(MAKE) features
 
 # The scaling run deliverable 4 asks for: the same build over a source
-# replicated to five times the users, so the timings can be compared against
-# the ordinary run above rather than read on their own.
+# replicated to 1x, 2x, 3x and 5x the users, so the timings can be compared
+# against each other rather than read on their own. 1x and 5x are the pair
+# the brief asks for; the two in between are what turn that pair into
+# evidence, because a single ratio cannot tell growth from fixed overhead.
+#
+# All four factors run in one Spark session on purpose. Four processes would
+# mean four JVM starts, and cold start would then sit inside the numbers
+# being compared -- which is why there is no `--scale` flag on features_main.
+#
+# Writes to feature_store_monthly_scale, never the live table.
 features-scale:
-	$(PYTHON) features_main.py --rules $(or $(RULES),db) --scale $(or $(FACTOR),5) --no-database
+	$(PYTHON) -m scripts.scaling_report
+	$(PYTHON) -m scripts.scaling_chart
 
 # Remove everything regenerable: Python bytecode caches, skipping the
 # virtualenv, and the test and type-checker caches.

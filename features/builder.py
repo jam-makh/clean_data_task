@@ -23,12 +23,22 @@ Peak memory is sampled from the JVM heap at those same barriers, because that
 is where the work happens. The Python driver's own heap is reported too, and
 is expected to be small: if it ever is not, something has started collecting
 rows.
+
+CPU is measured over the same brackets, across the whole process tree. Wall
+clock alone cannot tell a phase that is slow because there is a lot of work
+from one that is slow because it is doing that work on a single core, and it
+is the second kind that stops scaling first.
 """
 
 import json
 import time
 import tracemalloc
 from dataclasses import dataclass, field
+
+try:  # pragma: no cover - absence is reported as zero, not as a failure
+    import psutil
+except ImportError:  # pragma: no cover
+    psutil = None
 
 from pyspark import StorageLevel
 from pyspark.sql import functions as F
@@ -54,12 +64,14 @@ class Timings:
     Deliverable 4 asks which step dominated; measuring it beats guessing, and
     a dict of durations makes the answer a number rather than an impression.
 
-    :param phases: Phase name to seconds, in the order they ran.
+    :param phases: Phase name to wall-clock seconds, in the order they ran.
+    :param cpu: Phase name to CPU seconds over the whole process tree.
     :param jvm_peak_mb: Largest JVM heap in use seen at any barrier.
     :param driver_peak_mb: Peak Python heap in the driver process.
     """
 
     phases: dict[str, float] = field(default_factory=dict)
+    cpu: dict[str, float] = field(default_factory=dict)
     jvm_peak_mb: float = 0.0
     driver_peak_mb: float = 0.0
 
@@ -69,6 +81,13 @@ class Timings:
         :param seconds: How long it took.
         """
         self.phases[phase] = round(seconds, 4)
+
+    def record_cpu(self, phase: str, seconds: float) -> None:
+        """
+        :param phase: Name of the phase that just finished.
+        :param seconds: CPU seconds it burned across the process tree.
+        """
+        self.cpu[phase] = round(seconds, 4)
 
     @property
     def slowest(self) -> str:
@@ -81,6 +100,29 @@ class Timings:
     def total(self) -> float:
         """:returns: Wall clock for the whole build."""
         return round(sum(self.phases.values()), 4)
+
+    @property
+    def total_cpu(self) -> float:
+        """:returns: CPU seconds for the whole build."""
+        return round(sum(self.cpu.values()), 4)
+
+    @property
+    def parallelism(self) -> dict[str, float]:
+        """
+        CPU seconds over wall seconds, per phase: cores actually kept busy.
+
+        The number wall clock alone hides. A phase sitting near 1.0 ran
+        serially, and a serial phase is the one that caps the whole build no
+        matter how much parallelism the rest of it has.
+
+        :returns: Phase name to effective cores, for phases that took
+            measurable time.
+        """
+        return {
+            phase: round(self.cpu[phase] / seconds, 2)
+            for phase, seconds in self.phases.items()
+            if seconds > 0 and phase in self.cpu
+        }
 
 
 def jvm_heap_mb(spark) -> float:
@@ -103,6 +145,43 @@ def jvm_heap_mb(spark) -> float:
         return 0.0
 
 
+def cpu_seconds() -> float:
+    """
+    CPU time burned by this process and everything under it.
+
+    The process tree, not this process. Spark runs local here, which means the
+    JVM doing the work is a child this process started through py4j --
+    ``time.process_time()`` would report the driver's own bookkeeping and miss
+    every task, which is most of the build.
+
+    Reported rather than asserted on: divided by wall clock it says how many
+    cores a phase actually kept busy, and a phase that cannot get above one is
+    the one to look at first when the build stops scaling.
+
+    :returns: User plus system seconds across the tree, or 0.0 if psutil is
+        absent or a child exited while it was being read.
+    """
+    if psutil is None:
+        return 0.0
+    try:
+        process = psutil.Process()
+        times = process.cpu_times()
+        total = times.user + times.system
+
+        for child in process.children(recursive=True):
+            try:
+                child_times = child.cpu_times()
+                total += child_times.user + child_times.system
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                # A child that exited mid-walk took its own total with it.
+                # Undercounting one is better than failing the build for it.
+                continue
+
+        return total
+    except Exception:  # pragma: no cover - platform-specific
+        return 0.0
+
+
 class _Phase:
     """
     A context manager that times one phase and forces it to actually happen.
@@ -122,6 +201,7 @@ class _Phase:
         self.name = name
         self.spark = spark
         self.started = 0.0
+        self.cpu_started = 0.0
         self.frames: list = []
 
     def barrier(self, frame):
@@ -137,6 +217,7 @@ class _Phase:
 
     def __enter__(self) -> "_Phase":
         """:returns: This phase, timing started."""
+        self.cpu_started = cpu_seconds()
         self.started = time.perf_counter()
         return self
 
@@ -150,6 +231,7 @@ class _Phase:
                 frame.count()
 
         self.timings.record(self.name, time.perf_counter() - self.started)
+        self.timings.record_cpu(self.name, cpu_seconds() - self.cpu_started)
 
         if self.spark is not None:
             self.timings.jvm_peak_mb = max(
@@ -325,6 +407,9 @@ def run(
     manifest["performance"]["phase_seconds"] = timings.phases
     manifest["performance"]["total_seconds"] = timings.total
     manifest["performance"]["slowest_phase"] = timings.slowest
+    manifest["performance"]["phase_cpu_seconds"] = timings.cpu
+    manifest["performance"]["total_cpu_seconds"] = timings.total_cpu
+    manifest["performance"]["phase_parallelism"] = timings.parallelism
     manifest["performance"]["jvm_peak_memory_mb"] = timings.jvm_peak_mb
     manifest["performance"]["driver_peak_memory_mb"] = timings.driver_peak_mb
 

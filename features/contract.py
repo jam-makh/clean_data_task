@@ -27,13 +27,12 @@ STAGING = f"staging_{TABLE}"
 # The grain. One row per user per month, and the upsert key of the table.
 KEY = ("user_id", "month")
 
-# When a column's value becomes knowable, which is the whole point of Stage 3.
-#
+# When a column's value becomes knowable.
+
 # KEY           identifies the row.
 # BEFORE_MONTH  computed only from months strictly before the row's month.
 # CALENDAR      a property of the calendar, fixed before the month begins.
-# TARGET        the thing being predicted. Reads month M and must never be
-#               used as an input.
+# TARGET        the thing being predicted. Reads month M.
 KEY_COLUMN, BEFORE_MONTH, CALENDAR, TARGET = (
     "KEY", "BEFORE_MONTH", "CALENDAR", "TARGET",
 )
@@ -71,7 +70,7 @@ _POSTGRES = {
     IDENTIFIER: "UUID",
 }
 
-
+# frozen means once created, column cannot be modified
 @dataclass(frozen=True)
 class Column:
     """
@@ -226,12 +225,6 @@ def _spending_columns(categories: tuple[str, ...]) -> list[Column]:
     """
     Total spend, then one amount per category. Amounts only.
 
-    There are no share columns. A share is the amount divided by the total,
-    both of which are on this row, so publishing it would duplicate
-    information the table already carries and add one column per category to
-    do it. Stage 4 divides if Stage 4 wants a share; the total is kept
-    explicitly so it can.
-
     :param categories: The spending vocabulary, in display order.
     :returns: The spending columns.
     """
@@ -318,6 +311,7 @@ def postgres_types(categories: tuple[str, ...]) -> dict[str, str]:
 
 def feature_names(categories: tuple[str, ...]) -> list[str]:
     """
+    
     :param categories: The spending vocabulary, in display order.
     :returns: The columns a model may read: everything but the keys and the
         target.
@@ -334,8 +328,8 @@ def select(frame, categories: tuple[str, ...]):
     Projects a built frame down to the declared columns, in order and typed.
 
     This is where the diagnostics leave. They ride the internal frames all the
-    way to here -- lagged like every other fact, so they never become a back
-    door to month M -- and are dropped by not being selected.
+    way to here - lagged like every other fact, so they never become a back
+    door to month M - and are dropped by not being selected.
 
     :param frame: The assembled feature frame.
     :param categories: The spending vocabulary, in display order.
@@ -351,7 +345,8 @@ def select(frame, categories: tuple[str, ...]):
             f"{TABLE} is missing {len(missing)} declared column(s): "
             f"{', '.join(missing)}"
         )
-
+    # selects only declared columns, forces the declared type, 
+    # and orders them as declared. 
     return frame.select(
         *[
             F.col(column.name).cast(column.spark_type).alias(column.name)
@@ -363,7 +358,8 @@ def select(frame, categories: tuple[str, ...]):
 def verify(frame, categories: tuple[str, ...]) -> None:
     """
     Checks a projected frame against this declaration before anything is
-    written.
+    written. In other terms, no column enters the final table unless it 
+    has explicitly declared point-in-time semantics.
 
     :param frame: The projected feature frame.
     :param categories: The spending vocabulary, in display order.
@@ -440,7 +436,7 @@ def merge_statement(
     staging: str = STAGING,
 ) -> str:
     """
-    The one statement that moves a staged build into the live table.
+    Moves a staged build into the live table.
 
     Spark's JDBC writer cannot express ``ON CONFLICT``: its modes are append,
     overwrite, ignore and error, and none of those is an upsert. Writing

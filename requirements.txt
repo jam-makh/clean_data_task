@@ -5,3 +5,7 @@ pyspark==4.2.0
 pyarrow==25.0.1
 confluent-kafka==2.15.0
 pytest>=8.0
+# Process-tree CPU sampling for the per-phase build timings.
+psutil==7.2.2
+# The scaling chart deliverable 4 asks for. Not imported by the pipeline.
+matplotlib==3.10.7

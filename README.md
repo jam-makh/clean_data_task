@@ -882,8 +882,113 @@ report to `data/features/feature_store_monthly.manifest.json`.
 make features-scale
 ```
 
-The same build over a source replicated to five times the users, so the timings
-can be compared rather than read on their own.
+The same build at four source sizes, so the timings can be compared rather than
+read on their own. See [Does it scale?](#does-it-scale) below.
+
+## Does it scale?
+
+A build that works is not the same as a build that keeps working. Wall clock on
+this laptop is a property of this laptop; what transfers to production is the
+*shape* of the growth, and at small sizes a linear build and a quadratic one
+look alike. So the run measures the same build at 1x, 2x, 3x and 5x and fits
+the curve.
+
+```bash
+make features-scale
+```
+
+Writes `data/features/scaling_report.json` and `data/features/scaling.png`, and
+prints a table of per-phase seconds, ratio and fitted exponent.
+
+### How the source is made bigger
+
+Not by duplication. Duplicating rows keeps the same `user_id`, so five copies
+collide on the `(user_id, month)` primary key and upsert onto the same 6,450
+rows -- and the `groupBy` collapses them back to the same 6,450 groups, leaving
+the number the cost actually follows unchanged.
+
+`features/scale.py` re-keys instead. One `explode` gives N rows per input row,
+and copies 1..N-1 get a derived UUID -- MD5 over `"<id>#<copy>"`, laid out with
+the version and variant nibbles fixed so the result is a valid RFC-4122 v3 UUID
+rather than a hyphenated hash, which matters because `user_id` and `account_id`
+are Postgres `UUID` columns. Copy 0 keeps the originals.
+
+So 5x the rows is **5x the users over the same 43 months**, which is the axis a
+feature build's cost actually follows. It is built in Spark SQL rather than a
+Python UDF, deliberately: a UDF would serialise every row through the
+interpreter, which is the opposite of what a timing run needs.
+
+Two consequences worth stating:
+
+- The scaled run writes to `feature_store_monthly_scale`, never the live table.
+  Every replicated user is a valid row with a valid UUID, so nothing downstream
+  would flag it as synthetic -- keeping them apart is the only thing that stops
+  a benchmark from quietly becoming data.
+- The exponent describes growth in **users**. Months per user is held constant
+  by construction, so it says nothing about a longer calendar.
+
+### Reading the numbers
+
+Three figures per phase, because each is misleading alone:
+
+| Figure | What it answers | Where it misleads |
+| --- | --- | --- |
+| `ratio` | 5x the data cost this much more time | Cannot tell growth from fixed overhead |
+| `slope` | The exponent in `cost ~ rows ** k` over the whole range | Biased **downward** by fixed overhead |
+| `tail_slope` | The same over the largest two sizes, where the constant matters least | Two points, so the noisiest of the three |
+
+The slope is the elasticity of *measured* cost, not of the work. Taking log-log
+of `c + k*rows` does not move `c` into the intercept -- it lowers the gradient,
+and the larger `c` is the lower the answer. A perfectly linear build carrying a
+constant equal to 1.5x its 1x cost fits at 0.59, not 1.0.
+
+That bias runs one way, which is what keeps the number usable: it **understates**.
+A slope near 2 is conclusive and cannot be explained away by overhead. A slope
+near 1 is good news about measured cost and weaker evidence about the algorithm
+-- which is what `tail_slope` and the `bending_up` flag are for.
+
+Two things the run also asserts on every factor:
+
+- `driver_peak_memory_mb` stays small. The driver holds plans, not rows; if that
+  figure grows with the data, something has started collecting, which is the
+  row-by-row failure mode showing up as a number.
+- `phase_parallelism` -- CPU seconds over wall seconds, the cores a phase
+  actually kept busy. A phase pinned near 1.0 ran serially, and serial work is
+  what stops scaling first.
+
+### What breaks first
+
+Two ceilings, both configuration rather than algorithm, named here because a
+curve that quietly flattens is worse than one that says why:
+
+- The JDBC read in `features/source.py` has no `partitionColumn` /
+  `numPartitions`, so the whole source arrives through one connection on one
+  partition. That is a fixed serial segment, and a serial segment caps the
+  achievable speedup no matter what is added downstream. The fix is a
+  `partitionColumn` on an indexed key.
+- `spark.sql.shuffle.partitions` is pinned to 8 against `local[8]` in
+  `src/spark/spark_setup.py`. Tuned for this dataset; at 5x the users each
+  shuffle partition carries 5x the groups.
+
+### A note on measurement
+
+Two decisions that change what the numbers mean:
+
+- **The first build is discarded.** The JVM interprets bytecode until a method
+  is hot enough to compile, so the first build through any code path pays for
+  JIT and the rest do not. Left in, that cost lands entirely on x1 -- the
+  denominator of every ratio -- and inflating the denominator makes the growth
+  look *smaller* than it is. Measured on the fixture, x1 came out slower than
+  x5 without the warm-up, which is not a scaling result.
+- **All four factors share one Spark session**, so JVM startup is paid once and
+  sits outside every measurement. This is why there is no `--scale` flag on
+  `features_main.py`: four invocations would mean four cold starts, inside the
+  very numbers being compared.
+
+`jvm_peak_memory_mb` is sampled at phase boundaries rather than tracked
+continuously, so it is a **lower bound** on the true peak. A real peak needs a
+`SparkListener` on task-end metrics; the report says so rather than presenting
+the sample as more than it is.
 
 ## The feature table
 

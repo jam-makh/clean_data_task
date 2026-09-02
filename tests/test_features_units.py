@@ -41,7 +41,28 @@ FORWARD_BOUNDS = frozenset({"unboundedFollowing"})
 # the driver and quietly undo the reason Stage 3 runs on Spark at all.
 BANNED_MODULES = frozenset({"pandas", "numpy"})
 
-BANNED_CALLS = frozenset({"toPandas", "toLocalIterator"})
+# Two families, banned for the same reason from opposite directions.
+#
+# toPandas and toLocalIterator pull the dataset *out* of Spark into the driver.
+# The rest push Python *into* the row path: a UDF, a pandas UDF, or a pandas
+# apply serialises every row through the interpreter, and iterrows/itertuples
+# are the pandas row loop itself. Either way the work stops being a plan the
+# optimiser can reason about and becomes one row at a time, which is the exact
+# shape that turns linear scaling into something worse.
+#
+# None of these appears in features/ today. This test is the guard that keeps
+# it that way, because the cost of the mistake does not show up on a laptop --
+# it shows up at production size, where the fix is expensive.
+BANNED_CALLS = frozenset({
+    "toPandas",
+    "toLocalIterator",
+    "udf",
+    "pandas_udf",
+    "iterrows",
+    "itertuples",
+    "applyInPandas",
+    "mapInPandas",
+})
 
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:

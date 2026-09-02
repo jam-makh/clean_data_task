@@ -1,12 +1,12 @@
 """
 The point-in-time layer: the only place a lag or a rolling window is taken.
 
-Every ``prev_*``, ``roll*_*`` and ``delta_*`` column in the feature table is
+Every prev_*, roll*_* and delta_* column in the feature table is
 produced here, from monthly facts that describe month M, shifted so that a row
 for M sees only months before it.
 
 On Spark that is a window frame rather than a positional shift, which makes
-the rule easier to read off the code: ``rowsBetween(-3, -1)`` says in the
+the rule easier to read off the code: rowsBetween(-3, -1) says in the
 expression itself that month M is outside the window.
 """
 

@@ -477,6 +477,9 @@ def build(
             "phase_seconds": timings.phases,
             "total_seconds": timings.total,
             "slowest_phase": timings.slowest,
+            "phase_cpu_seconds": timings.cpu,
+            "total_cpu_seconds": timings.total_cpu,
+            "phase_parallelism": timings.parallelism,
             "jvm_peak_memory_mb": timings.jvm_peak_mb,
             "driver_peak_memory_mb": timings.driver_peak_mb,
             "note": "Spark is lazy, so a phase is timed by materialising at "
@@ -484,5 +487,15 @@ def build(
                     "the plan. Peak memory is the JVM's, because that is "
                     "where the work happens; the driver figure is the Python "
                     "process and is expected to be small.",
+            "memory_caveat": "jvm_peak_memory_mb is sampled at phase "
+                    "boundaries, not tracked continuously, so it is a lower "
+                    "bound on the true peak rather than the peak itself. A "
+                    "real peak needs a SparkListener on task-end metrics; "
+                    "this is the honest description of what the number is.",
+            "cpu_note": "phase_cpu_seconds is user plus system time across "
+                    "the whole process tree, which is where the local-mode "
+                    "JVM lives. phase_parallelism is that over wall clock: "
+                    "the cores a phase actually kept busy. A phase near 1.0 "
+                    "ran serially and is what caps the build first.",
         },
     }

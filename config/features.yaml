@@ -58,3 +58,10 @@ scale:
   # deliverable 4 asks for. Users are re-keyed per copy so the grain is
   # preserved: five times the users, not five times the rows per user.
   factor: 5
+
+  # Where a scaling run's feature table goes. Separate from the live table so a
+  # benchmark never leaves synthetic user-months in the data Stage 4 reads --
+  # the replicated copies are valid rows with valid uuids, so nothing downstream
+  # would flag them. Same DDL and same merge, generated from the same contract,
+  # so the timing still measures the real stage-then-merge path.
+  table: feature_store_monthly_scale

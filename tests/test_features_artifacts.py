@@ -198,6 +198,21 @@ def test_the_report_names_the_slowest_phase(
     # The JVM is where the work happens, so that is the figure reported.
     assert performance["jvm_peak_memory_mb"] > 0
 
+    # CPU is bracketed over the same phases as wall clock, so the two maps
+    # describe the same run and can be divided by each other.
+    assert set(performance["phase_cpu_seconds"]) == set(
+        performance["phase_seconds"]
+    )
+    assert performance["total_cpu_seconds"] > 0
+    assert set(performance["phase_parallelism"]) <= set(
+        performance["phase_seconds"]
+    )
+
+    # The claim the memory figure makes about itself. It is sampled at phase
+    # boundaries rather than tracked, and the report has to say so -- a lower
+    # bound presented as a peak is the kind of number that gets quoted.
+    assert "sampled" in performance["memory_caveat"]
+
 
 def test_replicating_the_source_multiplies_users_not_months(source_frame):
     """
@@ -241,6 +256,53 @@ def test_a_scaled_build_produces_proportionally_many_rows(
     )
 
     assert large.table.count() == small.table.count() * 5
+
+
+def test_the_scaled_build_computes_the_same_answer_for_the_real_users(
+    source_frame, rules, config
+):
+    """
+    The one that makes every scaling number mean anything.
+
+    Copy zero keeps the original ids, so a 5x build contains the 1x build.
+    Restricted back to the original users it therefore has to agree with a 1x
+    build column for column -- if it does not, the benchmark is timing a
+    different computation and the timings describe nothing.
+
+    Two ways it could fail, and both are real. Derived ids could collide with
+    original ones, putting two users' rows under one key. Or a global
+    operation could have crept in somewhere -- a window without a partition,
+    an aggregate over the whole frame -- in which case adding users would
+    change the answer for the users already there.
+    """
+    from pyspark.sql import functions as F
+
+    small = builder.assemble(source_frame, rules, config).table
+    large = builder.assemble(
+        scale.replicate(source_frame, 5), rules, config
+    ).table
+
+    original = small.select("user_id").distinct()
+    restricted = large.join(original, on="user_id", how="inner")
+
+    # Same rows for the same users, and no user gained or lost a month.
+    assert restricted.count() == small.count()
+
+    # And the same values. subtract() is a set difference over whole rows, so
+    # a single cent moving in a single column on a single month fails this.
+    columns = small.columns
+    assert restricted.select(columns).subtract(small.select(columns)).count() == 0
+    assert small.select(columns).subtract(restricted.select(columns)).count() == 0
+
+    # The collision case, stated separately so it fails with its own message.
+    assert large.select("user_id").distinct().count() == (
+        original.count() * 5
+    )
+    assert (
+        large.groupBy("user_id", "month").agg(F.count("*").alias("n"))
+        .filter(F.col("n") > 1)
+        .count()
+    ) == 0
 
 
 @pytest.mark.db
