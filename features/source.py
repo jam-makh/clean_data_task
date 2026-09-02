@@ -13,6 +13,7 @@ from pyspark.sql import functions as F
 from src.config_readers.errors import ConfigError
 from src.db.settings import Database
 
+# Source table for the features
 TABLE = "cleaned_transactions"
 
 # Transaction identity and ordering within each account.
@@ -22,9 +23,9 @@ KEYS = ("user_id", "account_id", "txn_seq", "txn_ts")
 # USD transaction flows and the processing code used to determine direction.
 # billing_amount is used instead of the native-currency txn_amount_cleaned.
 FLOWS = (
-"billing_amount",
-"billing_currency",
-"processing_code_cleaned",
+    "billing_amount",
+    "billing_currency",
+    "processing_code_cleaned",
 )
 
 # USD-normalized balances and their reliability status.
@@ -41,10 +42,10 @@ UUID_COLUMNS = ("user_id", "account_id")
 # Native-currency columns Stage 3 must not use.
 # Keeping them explicit makes the restriction testable.
 FORBIDDEN = (
-"txn_amount_cleaned",
-"txn_ccy",
-"running_balance_filled",
-"running_balance_currency",
+    "txn_amount_cleaned",
+    "txn_ccy",
+    "running_balance_filled",
+    "running_balance_currency",
 )
 
 # Currency used for all monetary features.
@@ -79,46 +80,53 @@ def typed(frame):
     :param frame: Rows as the reader produced them.
     :returns: The same rows, typed, with ``month`` derived.
     """
+
+    # Cast transaction time to a Spark timestamp.
     frame = frame.withColumn("txn_ts", F.col("txn_ts").cast("timestamp"))
+
+    # Cast sequence order to a long integer.
     frame = frame.withColumn("txn_seq", F.col("txn_seq").cast("long"))
 
+    # Cast monetary columns to doubles.
     for column in _DOUBLES:
         frame = frame.withColumn(column, F.col(column).cast("double"))
 
+    # Cast identifiers and categorical columns to strings.
     for column in _STRINGS:
         frame = frame.withColumn(column, F.col(column).cast("string"))
 
-    # First day of the month the transaction fell in, as a date. Every spine,
-    # every groupBy and every window in Stage 3 keys on this column.
+    # Derive the first day of each transaction's month.
     return frame.withColumn(
         MONTH, F.trunc(F.col("txn_ts"), "month").cast("date")
     )
 
-
 def validate(frame) -> None:
     """
-    Checks the assumptions the units decision rests on.
-
-    The currency check costs one small job. It is worth it: summing two
-    denominations is the one failure deliverable 5 is about, and it is
-    invisible in the output.
+    Validate required columns and ensure all transaction flows are in USD.
 
     :param frame: The read transactions.
     :raises ConfigError: If a required column is absent, or a row's flow is
         denominated in anything but USD.
     """
+    # Find Stage 3 columns missing from the source DataFrame.
     missing = [name for name in COLUMNS if name not in frame.columns]
+
+    # Stop if the source schema does not satisfy the Stage 3 contract.
     if missing:
         raise ConfigError(
             f"{TABLE} is missing {len(missing)} column(s) Stage 3 needs: "
             f"{', '.join(missing)}"
         )
 
+    # Collect all distinct billing currencies present in the data.
     row = frame.agg(
         F.collect_set("billing_currency").alias("denominations")
     ).first()
+
+    # Convert the collected currencies to a Python set.
     denominations = set(row["denominations"] or [])
 
+    # Stop if any billing currency other than USD is present.
     if denominations - {USD}:
         raise ConfigError(
             f"billing_amount is not all USD: found "
@@ -130,30 +138,31 @@ def validate(frame) -> None:
 
 def from_database(spark, database: Database, table: str = TABLE):
     """
-    Reads the cleaned transactions out of Postgres over JDBC.
-
-    Through the JVM's driver, not psycopg2: the rows never enter the Python
-    process, which is the whole point of reading them into Spark.
+    Read cleaned transactions from Postgres, type them, and validate them.
 
     :param spark: The session.
     :param database: Where to connect.
     :param table: The table to read.
     :returns: One row per transaction, typed, with ``month`` derived.
     """
-    # A subquery rather than the bare table name, so the uuid columns arrive as
-    # text and the projection is stated to the database instead of to Spark --
-    # the same shape src/db/raw.py reads with. The .select() that follows is
-    # then an assertion that the two lists agree, which is worth keeping.
+    # Build the SQL projection and cast Postgres UUIDs to text.
     projection = ", ".join(
         f"{column}::text AS {column}" if column in UUID_COLUMNS else column
         for column in COLUMNS
     )
+
+    # Read only the required Stage 3 columns from Postgres through JDBC.
     frame = spark.read.jdbc(
         url=database.jdbc_url,
         table=f"(SELECT {projection} FROM {table}) AS cleaned",
         properties=database.jdbc_properties,
     ).select(*COLUMNS)
 
+    # Apply the Spark types expected by the feature build.
     frame = typed(frame)
+
+    # Verify the source schema and USD unit assumption.
     validate(frame)
+
+    # Return the prepared transaction DataFrame.
     return frame
