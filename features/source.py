@@ -1,5 +1,5 @@
 """
-Reading the Stage 2 cleaned transactions the feature build starts from.
+Reading the cleaned transactions the feature build starts from.
 The rows are read into a Spark DataFrame and stay one all
 the way to the Postgres upsert.
 
@@ -15,61 +15,44 @@ from src.db.settings import Database
 
 TABLE = "cleaned_transactions"
 
-# The identity of a transaction and where it sits in its account's chain.
-#
-# txn_seq rather than txn_ts decides which row is last in a month: it is the
-# sequence the running balance was reconstructed along, and it is total, where
-# txn_ts has ties and rows recorded to the day only.
+# Transaction identity and ordering within each account.
+# txn_seq determines the last transaction of a month because txn_ts can have ties.
 KEYS = ("user_id", "account_id", "txn_seq", "txn_ts")
 
-# The USD flow column and the code that says which way it moved.
-#
-# billing_amount, never txn_amount_cleaned. The latter is denominated in
-# txn_ccy -- six currencies in this extract -- and summing it across accounts
-# adds LBP to USD. billing_currency is carried so that assumption is checked
-# rather than trusted.
+# USD transaction flows and the processing code used to determine direction.
+# billing_amount is used instead of the native-currency txn_amount_cleaned.
 FLOWS = (
-    "billing_amount",
-    "billing_currency",
-    "processing_code_cleaned",
+"billing_amount",
+"billing_currency",
+"processing_code_cleaned",
 )
 
-# The USD balance and the status that says how much to trust it.
-#
-# running_balance_normalized, never running_balance_filled. The latter is in
-# running_balance_currency, which differs per account.
+# USD-normalized balances and their reliability status.
+# running_balance_normalized is used instead of the account's native-currency balance.
 BALANCES = ("running_balance_normalized", "running_balance_status")
 
-# What a transaction was for and who it was with.
+# Transaction category and merchant information.
 ACTIVITY = ("mcc_code_cleaned", "merchant_name_cleaned")
-
 COLUMNS = KEYS + FLOWS + BALANCES + ACTIVITY
 
-# Columns that are UUID in Postgres and must be string in the frame.
-#
-# Spark's Postgres dialect reports uuid as JDBC OTHER, and whether it folds
-# that to StringType is a property of the dialect, not of this code. Casting in
-# the projection makes the read independent of that: the driver sees text, and
-# a dialect change becomes a non-event rather than a Stage 3 that dies at
-# schema resolution before it has read a row.
+# Postgres UUID columns are cast to strings during the JDBC read.
 UUID_COLUMNS = ("user_id", "account_id")
 
-# Columns Stage 3 must never read, listed so the ban is testable rather than
-# a matter of remembering. Each is native-currency and not comparable across
-# accounts; they stay in Stage 2 for diagnostics.
+# Native-currency columns Stage 3 must not use.
+# Keeping them explicit makes the restriction testable.
 FORBIDDEN = (
-    "txn_amount_cleaned",
-    "txn_ccy",
-    "running_balance_filled",
-    "running_balance_currency",
+"txn_amount_cleaned",
+"txn_ccy",
+"running_balance_filled",
+"running_balance_currency",
 )
 
-# The denomination every monetary feature is expressed in.
+# Currency used for all monetary features.
 USD = "USD"
 
-# The month every later stage groups on. Derived once here so no downstream
-# module re-derives it a second way.
+# Common month key used throughout Stage 3.
 MONTH = "month"
+
 
 _STRINGS = (
     "user_id",

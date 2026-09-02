@@ -48,7 +48,7 @@ def facts(source_frame, rules, config):
     accounts = spine.account_months(source_frame)
     users = spine.user_months(accounts)
     filled = balances.carry_forward(
-        accounts, balances.month_end_by_account(source_frame, config.balance)
+        accounts, balances.month_end_by_account(source_frame, config)
     )
     return monthly_facts.build(source_frame, filled, users, rules, config)
 
@@ -134,9 +134,7 @@ def test_a_rolling_window_never_includes_the_rows_own_month(facts, config):
         facts.select(
             "user_id",
             "month",
-            windows.rolling("txn_count", config.windows, "mean").alias(
-                "rolled"
-            ),
+            windows.rolling("txn_count", config, "mean").alias("rolled"),
         ),
         "user_id",
         "month",
@@ -150,7 +148,7 @@ def test_a_rolling_window_never_includes_the_rows_own_month(facts, config):
 
     for user, months in by_user.items():
         for position, row in enumerate(months):
-            window = months[max(0, position - config.windows.rolling_months):
+            window = months[max(0, position - config.rolling_months):
                             position]
             values = [
                 month["txn_count"]
@@ -159,7 +157,7 @@ def test_a_rolling_window_never_includes_the_rows_own_month(facts, config):
             ]
             actual = rolled[(user, row["month"])]["rolled"]
 
-            if len(values) < config.windows.min_periods:
+            if len(values) < config.min_periods:
                 assert actual is None
             else:
                 assert actual == pytest.approx(sum(values) / len(values))

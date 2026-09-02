@@ -9,11 +9,7 @@ balance:
   # UNAVAILABLE is excluded because it is the one status with no number at
   # all. Everything else is admitted: a figure reconstructed in one direction
   # is weaker evidence than one two anchors agree on, but it is evidence.
-  #
-  # This is the largest single judgement in Stage 3 -- CONTRADICTED is ~48.5k
-  # of 265k rows in the extract -- so it is a list here rather than a constant
-  # in balances.py, and the run report counts exactly what it cost under
-  # `balance_quality`.
+
   eligible_statuses:
     - OBSERVED
     - DERIVED
@@ -54,8 +50,8 @@ database:
   batch_size: 10000
 
 scale:
-  # How many times over the source is replicated for the scaling run
-  # deliverable 4 asks for. Users are re-keyed per copy so the grain is
+  # How many times over the source is replicated for the scaling run.
+  # Users are re-keyed per copy so the grain is
   # preserved: five times the users, not five times the rows per user.
   factor: 5
 

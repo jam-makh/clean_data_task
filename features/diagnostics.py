@@ -25,7 +25,7 @@ from pyspark.sql import functions as F
 
 from features import activity, balances, flows
 from features import spending
-from features.settings import BalanceSettings
+from features.settings import FeatureSettings
 from src.rules import loader
 from src.rules.loader import CREDIT, DEBIT
 from src.rules.store import Rules
@@ -67,7 +67,7 @@ def _tally(frame, column, limit: int = TOP_N) -> dict[str, int]:
     return {str(row["label"]): int(row["rows"]) for row in rows}
 
 
-def transactions(frame, rules: Rules, balance: BalanceSettings) -> dict:
+def transactions(frame, rules: Rules, config: FeatureSettings) -> dict:
     """
     Everything countable over the cleaned transactions themselves.
 
@@ -75,11 +75,11 @@ def transactions(frame, rules: Rules, balance: BalanceSettings) -> dict:
 
     :param frame: Cleaned transactions as ``source`` returned them.
     :param rules: The vocabularies.
-    :param balance: Which running-balance statuses may supply a figure.
+    :param config: The build settings; supplies the eligible statuses.
     :returns: The transaction-level counts, as plain Python.
     """
     status = F.col("running_balance_status")
-    eligible_status = status.isin(*balance.eligible_statuses)
+    eligible_status = status.isin(*config.eligible_statuses)
     direction = flows.classify(frame, rules)
     is_spend = spending.eligible(frame, rules)
     mcc = F.col("mcc_code_cleaned")

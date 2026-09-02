@@ -56,7 +56,7 @@ def _balance_quality(
     user_months = users["user_months_total"]
 
     return {
-        "eligible_statuses": list(config.balance.eligible_statuses),
+        "eligible_statuses": list(config.eligible_statuses),
         "rows_by_balance_status": metric(
             txns["rows_by_balance_status"],
             "Transactions per running_balance_status across the whole "
@@ -404,7 +404,7 @@ def build(
     return {
         "grain": "one row per user_id per month",
         "destination": {
-            "table": config.database.table,
+            "table": config.table,
             "rows_written": rows_written,
             "note": "The feature table is written to Postgres and nowhere "
                     "else. Stage 4 reads this table directly; there is no "

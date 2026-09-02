@@ -45,7 +45,7 @@ def migrate(
     :param rules: The vocabularies, which fix the spending columns.
     :param config: The build settings, which name the table.
     """
-    live = config.database.table
+    live = config.table
     staging = f"staging_{live}"
 
     with _connect(database) as connection:
@@ -114,7 +114,7 @@ def verify_shape(
     :raises ConfigError: If the table's columns are not exactly the declared
         ones, naming the drift and how to clear it.
     """
-    table = config.database.table
+    table = config.table
     live = live_columns(database, table)
     if not live:
         return
@@ -179,14 +179,14 @@ def stage(table, database: Database, config: FeatureSettings) -> None:
     :param database: Where to write.
     :param config: The build settings.
     """
-    staging = f"staging_{config.database.table}"
+    staging = f"staging_{config.table}"
 
     with _connect(database) as connection:
         with connection.cursor() as cursor:
             cursor.execute(f"TRUNCATE {staging}")
 
     table.write.mode("append").option(
-        "batchsize", str(config.database.batch_size)
+        "batchsize", str(config.batch_size)
     ).jdbc(
         url=database.jdbc_url,
         table=staging,
@@ -207,7 +207,7 @@ def merge(database: Database, rules, config: FeatureSettings) -> int:
     :param config: The build settings.
     :returns: Rows inserted or updated.
     """
-    live = config.database.table
+    live = config.table
     statement = contract.merge_statement(
         rules.categories, live, f"staging_{live}"
     )

@@ -1,8 +1,6 @@
 """
-The Stage 3 build settings, read from ``config/features.yaml`` and frozen.
-
-Separate from ``src.config_readers.policy`` so a Stage 3 knob does not move the
-Stage 2 config fingerprint.
+settings.py reads Stage 3 configuration from config/features.yaml, validates it, and converts it into structured, 
+immutable Python settings that the rest of the pipeline can safely use.
 """
 
 from dataclasses import dataclass
@@ -17,70 +15,43 @@ DEFAULT_PATH = Path("config/features.yaml")
 
 
 @dataclass(frozen=True)
-class BalanceSettings:
-    """
-    :param eligible_statuses: Running-balance statuses that may supply an
-        account's month-end balance.
-    """
-
-    eligible_statuses: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class WindowSettings:
-    """
-    :param rolling_months: Months in the rolling mean and standard deviation.
-    :param min_periods: Non-null months required before one is published.
-    """
-
-    rolling_months: int
-    min_periods: int
-
-
-@dataclass(frozen=True)
-class OutputSettings:
-    """
-    :param manifest: Where the run manifest and data-quality report is
-        written. The only file this build produces -- the feature table
-        itself goes to Postgres and nowhere else.
-    """
-
-    manifest: Path
-
-
-@dataclass(frozen=True)
-class DatabaseSettings:
-    """
-    :param table: The table the feature build upserts into.
-    :param batch_size: Rows per JDBC round trip on the staging load.
-    """
-
-    table: str
-    batch_size: int
-
-
-@dataclass(frozen=True)
 class FeatureSettings:
     """
-    :param balance: Month-end balance eligibility.
-    :param windows: Rolling window shape.
-    :param output: Where the manifest lands.
-    :param database: Where the feature table lands.
-    :param scale_factor: Replication factor for the scaling run.
-    :param scale_table: Where a scaling run's table lands, kept apart from the
-        live one so a benchmark cannot leave synthetic rows in it.
+    Every Stage 3 setting.
     """
 
-    balance: BalanceSettings
-    windows: WindowSettings
-    output: OutputSettings
-    database: DatabaseSettings
+    # Running-balance statuses that may supply an account's month-end balance.
+    eligible_statuses: tuple[str, ...]
+
+    # Months in the rolling mean and standard deviation.
+    rolling_months: int
+
+    # Non-null months required before a rolling statistic is published.
+    min_periods: int
+
+    # Where the run manifest and data-quality report is written. The only file
+    # this build produces -- the feature table itself goes to Postgres and
+    # nowhere else.
+    manifest: Path
+
+    # The table the feature build upserts into.
+    table: str
+
+    # Rows per JDBC round trip on the staging load.
+    batch_size: int
+
+    # Replication factor for the scaling run.
     scale_factor: int
+
+    # Where a scaling run's table lands, kept apart from the live one so a
+    # benchmark cannot leave synthetic rows in it.
     scale_table: str
 
 
 def _section(data: dict, name: str, path: Path) -> dict:
     """
+    Check that a required top-level YAML section exists
+    
     :param data: Parsed YAML root.
     :param name: Section key expected at the top level.
     :param path: File the data came from, for the error message.
@@ -100,6 +71,8 @@ def _section(data: dict, name: str, path: Path) -> dict:
 
 def _positive_int(section: dict, key: str, where: str, path: Path) -> int:
     """
+    Validates values that must be positive integers, such as rolling_months and min_periods.
+
     :returns: The value at ``where.key``.
     :raises ConfigError: If it is absent, not an integer, or not positive.
     """
@@ -116,31 +89,40 @@ def _positive_int(section: dict, key: str, where: str, path: Path) -> int:
 @lru_cache(maxsize=None)
 def load(path: Path = DEFAULT_PATH) -> FeatureSettings:
     """
-    Reads and validates the feature settings.
-
+    Reads the features.yaml file and validates that the values are valid and logically usable
+    Returns those values as a structured FeatureSettings object
+    
     :param path: The YAML file to read.
     :returns: The frozen settings.
     :raises ConfigError: If the file is absent, unparseable, or a value is
         outside what the build can act on.
     """
+    # Fail early if the configuration file does not exist.
     if not path.exists():
         raise ConfigError(f"Feature settings not found: {path}")
 
+    # Read and safely parse the YAML configuration file.
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         raise ConfigError(f"{path}: {exc}") from exc
 
+    # Read and validate the balance configuration section.
     balance = _section(data, "balance", path)
     statuses = balance.get("eligible_statuses")
+
+    # Ensure at least one running-balance status is eligible.
     if not isinstance(statuses, list) or not statuses:
         raise ConfigError(
             f"{path}: balance.eligible_statuses must be a non-empty list"
         )
 
+    # Read and validate the rolling-window configuration.
     windows = _section(data, "windows", path)
     rolling = _positive_int(windows, "rolling_months", "windows", path)
     minimum = _positive_int(windows, "min_periods", "windows", path)
+
+    # Prevent requiring more observations than the rolling window contains.
     if minimum > rolling:
         raise ConfigError(
             f"{path}: windows.min_periods ({minimum}) exceeds "
@@ -148,17 +130,28 @@ def load(path: Path = DEFAULT_PATH) -> FeatureSettings:
             f"be published"
         )
 
+    # Read and validate where the run manifest should be written.
     output = _section(data, "output", path)
+
+    # Ensure the manifest output path is configured.
     if "manifest" not in output:
         raise ConfigError(f"{path}: missing required key output.manifest")
 
+    # Read and validate the production database configuration.
     database = _section(data, "database", path)
+
+    # Ensure the destination feature table is configured.
     if "table" not in database:
         raise ConfigError(f"{path}: missing required key database.table")
 
+    # Read and validate the scaling benchmark configuration.
     scale = _section(data, "scale", path)
+
+    # Ensure the scaling benchmark table is configured.
     if "table" not in scale:
         raise ConfigError(f"{path}: missing required key scale.table")
+
+    # Keep synthetic scaling data separate from the production feature table.
     if scale["table"] == database["table"]:
         raise ConfigError(
             f"{path}: scale.table and database.table are both "
@@ -167,16 +160,14 @@ def load(path: Path = DEFAULT_PATH) -> FeatureSettings:
             f"never reach the table Stage 4 reads."
         )
 
+    # Convert the validated YAML values into one immutable settings object.
     return FeatureSettings(
-        balance=BalanceSettings(
-            eligible_statuses=tuple(str(s) for s in statuses)
-        ),
-        windows=WindowSettings(rolling_months=rolling, min_periods=minimum),
-        output=OutputSettings(manifest=Path(str(output["manifest"]))),
-        database=DatabaseSettings(
-            table=str(database["table"]),
-            batch_size=_positive_int(database, "batch_size", "database", path),
-        ),
+        eligible_statuses=tuple(str(s) for s in statuses),
+        rolling_months=rolling,
+        min_periods=minimum,
+        manifest=Path(str(output["manifest"])),
+        table=str(database["table"]),
+        batch_size=_positive_int(database, "batch_size", "database", path),
         scale_factor=_positive_int(scale, "factor", "scale", path),
         scale_table=str(scale["table"]),
     )

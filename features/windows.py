@@ -16,7 +16,7 @@ from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from src.config_readers.errors import ConfigError
-from features.settings import WindowSettings
+from features.settings import FeatureSettings
 
 # The grain a window is taken within. A frame without a partition would walk
 # off the end of one user and into the start of the next.
@@ -132,7 +132,7 @@ def shift(fact: str, months: int):
     return F.lag(F.col(fact), months).over(_ordering())
 
 
-def rolling(fact: str, window: WindowSettings, stat: str):
+def rolling(fact: str, config: FeatureSettings, stat: str):
     """
     A rolling statistic over the months before the row's own.
 
@@ -146,7 +146,7 @@ def rolling(fact: str, window: WindowSettings, stat: str):
     many happened to be there.
 
     :param fact: The column to read.
-    :param window: How many months, and how many are required.
+    :param config: The build settings; supplies the rolling window shape.
     :param stat: ``mean`` or ``std``. The standard deviation is the sample
         one, so three identical months give zero and two months give null.
     :returns: A column carrying the statistic.
@@ -155,18 +155,18 @@ def rolling(fact: str, window: WindowSettings, stat: str):
     if stat not in (MEAN, STD):
         raise ConfigError(f"unsupported rolling statistic: {stat!r}")
 
-    frame = _ordering().rowsBetween(-window.rolling_months, -1)
+    frame = _ordering().rowsBetween(-config.rolling_months, -1)
     column = F.col(fact)
     statistic = (
         F.avg(column) if stat == MEAN else F.stddev_samp(column)
     ).over(frame)
 
     return F.when(
-        F.count(column).over(frame) >= F.lit(window.min_periods), statistic
+        F.count(column).over(frame) >= F.lit(config.min_periods), statistic
     )
 
 
-def build(facts, plan: tuple[Lagged, ...], window: WindowSettings):
+def build(facts, plan: tuple[Lagged, ...], config: FeatureSettings):
     """
     Applies the whole plan, producing every point-in-time column at once.
 
@@ -176,7 +176,7 @@ def build(facts, plan: tuple[Lagged, ...], window: WindowSettings):
 
     :param facts: Monthly facts on the dense user spine.
     :param plan: What to lag and how far.
-    :param window: Rolling window shape.
+    :param config: The build settings; supplies the rolling window shape.
     :returns: The keys plus one column per requested lag, rolling statistic
         and delta. Nothing describing month M survives into this frame.
     :raises ConfigError: If the plan names a fact the frame does not carry.
@@ -199,15 +199,15 @@ def build(facts, plan: tuple[Lagged, ...], window: WindowSettings):
 
         if item.rolling:
             built.append(
-                rolling(item.fact, window, MEAN).alias(
-                    rolling_name(item.fact, window.rolling_months, MEAN)
+                rolling(item.fact, config, MEAN).alias(
+                    rolling_name(item.fact, config.rolling_months, MEAN)
                 )
             )
 
         if item.rolling_std:
             built.append(
-                rolling(item.fact, window, STD).alias(
-                    rolling_name(item.fact, window.rolling_months, STD)
+                rolling(item.fact, config, STD).alias(
+                    rolling_name(item.fact, config.rolling_months, STD)
                 )
             )
 

@@ -14,7 +14,7 @@ report can read them, and they are not feature columns.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from features.settings import BalanceSettings
+from features.settings import FeatureSettings
 
 # The USD balance this stage publishes, and the column every lag of it is
 # taken from. The target reads the same column, so the label and its own
@@ -35,7 +35,7 @@ IS_CARRIED = "balance_is_carried_forward"
 DIAGNOSTICS = (CONTRIBUTING, WITH_BALANCE, IS_CARRIED)
 
 
-def month_end_by_account(frame, balance: BalanceSettings):
+def month_end_by_account(frame, config: FeatureSettings):
     """
     The last eligible balance each account states in each month ordered by txn_seq
 
@@ -49,12 +49,12 @@ def month_end_by_account(frame, balance: BalanceSettings):
     evidence about where the chain ended.
 
     :param frame: Cleaned transactions as ``source`` returned them.
-    :param balance: Which running-balance statuses may supply a figure.
+    :param config: The build settings; supplies the eligible statuses.
     :returns: One row per ``(account_id, month)`` that stated one, with the
         balance in USD.
     """
     eligible = frame.filter(
-        F.col("running_balance_status").isin(*balance.eligible_statuses)
+        F.col("running_balance_status").isin(*config.eligible_statuses)
         & F.col("running_balance_normalized").isNotNull()
     )
 
@@ -140,13 +140,13 @@ def roll_up(filled):
     )
 
 
-def monthly(frame, accounts, balance: BalanceSettings):
+def monthly(frame, accounts, config: FeatureSettings):
     """
     The whole balance path: month-end per account, carried forward, rolled up.
 
     :param frame: Cleaned transactions as ``source`` returned them.
     :param accounts: The dense account spine.
-    :param balance: Which running-balance statuses may supply a figure.
+    :param config: The build settings; supplies the eligible statuses.
     :returns: One row per ``(user_id, month)``.
     """
-    return roll_up(carry_forward(accounts, month_end_by_account(frame, balance)))
+    return roll_up(carry_forward(accounts, month_end_by_account(frame, config)))

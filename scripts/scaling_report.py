@@ -271,14 +271,11 @@ def one_run(spark, frame, rules, config, database, factor: int) -> dict:
     replicated = scale.replicate(frame, factor)
     size = scale.summarise(replicated)
 
-    manifest = config.output.manifest
+    manifest = config.manifest
     scaled = replace(
         config,
-        output=replace(
-            config.output,
-            manifest=manifest.with_name(
-                f"{manifest.stem}.x{factor}{manifest.suffix}"
-            ),
+        manifest=manifest.with_name(
+            f"{manifest.stem}.x{factor}{manifest.suffix}"
         ),
     )
 
@@ -319,10 +316,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Everything below writes here instead of the live table. Done once, at the
     # top, so no later branch can forget it.
-    config = replace(
-        config,
-        database=replace(config.database, table=config.scale_table),
-    )
+    config = replace(config, table=config.scale_table)
 
     # One session for every factor. Four processes would mean four JVM starts,
     # and cold start would then sit inside the very numbers being compared --
@@ -336,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot start the scaling run: {exc}", file=sys.stderr)
         return 2
 
-    print(f"scaling {config.database.table} over factors {list(FACTORS)}")
+    print(f"scaling {config.table} over factors {list(FACTORS)}")
 
     # A build the results throw away, for the sake of the ones that follow.
     #
@@ -355,13 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         spark,
         frame,
         rules,
-        replace(
-            config,
-            output=replace(
-                config.output,
-                manifest=config.output.manifest.with_name(".warmup.json"),
-            ),
-        ),
+        replace(config, manifest=config.manifest.with_name(".warmup.json")),
         database,
     )
     print(f" {time.perf_counter() - warmup:.1f}s")
@@ -410,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         "does_not_cover": "Longer history. Months per user is held constant "
                           "by construction, so the exponent describes growth "
                           "in users and says nothing about a longer calendar.",
-        "destination": config.database.table,
+        "destination": config.table,
         "factors": list(FACTORS),
         "runs": runs,
         "wall_clock_growth": _growth(runs, "phase_seconds"),

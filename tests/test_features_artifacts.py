@@ -34,10 +34,7 @@ def config(tmp_path):
     """
     base = feature_settings.load()
     return dataclasses.replace(
-        base,
-        output=feature_settings.OutputSettings(
-            manifest=tmp_path / "features.manifest.json"
-        ),
+        base, manifest=tmp_path / "features.manifest.json"
     )
 
 
@@ -73,13 +70,13 @@ def test_the_report_records_the_decisions_the_table_rests_on(
     with the run rather than living only in a document.
     """
     builder.run(spark, source_frame, rules, config, database=None)
-    report = json.loads(config.output.manifest.read_text(encoding="utf-8"))
+    report = json.loads(config.manifest.read_text(encoding="utf-8"))
 
     assert report["units"]["money"] == "USD"
     assert report["units"]["never_read"]
 
     eligible = report["balance_quality"]["eligible_statuses"]
-    assert eligible == list(config.balance.eligible_statuses)
+    assert eligible == list(config.eligible_statuses)
     assert "CONTRADICTED" not in eligible
 
     # Every column says when it is knowable, and exactly one reads month M.
@@ -100,7 +97,7 @@ def test_every_metric_in_the_report_explains_itself(
     a convention that holds until someone adds a metric in a hurry.
     """
     builder.run(spark, source_frame, rules, config, database=None)
-    report = json.loads(config.output.manifest.read_text(encoding="utf-8"))
+    report = json.loads(config.manifest.read_text(encoding="utf-8"))
 
     sections = (
         "balance_quality",
@@ -172,7 +169,7 @@ def test_the_report_counts_what_the_balance_rule_excluded(
         ),
     ]
     frame = features.frame(spark, rows)
-    counts = diagnostics.transactions(frame, rules, config.balance)
+    counts = diagnostics.transactions(frame, rules, config)
 
     assert counts["rows_excluded_contradicted"] == 1
     assert counts["rows_excluded_unavailable"] == 1
@@ -316,9 +313,7 @@ def test_the_upsert_is_idempotent(
     import psycopg2
 
     name = "test_feature_store_monthly"
-    scoped = dataclasses.replace(
-        config, database=dataclasses.replace(config.database, table=name)
-    )
+    scoped = dataclasses.replace(config, table=name)
     build = builder.assemble(source_frame, rules, config)
     expected = build.table.count()
 

@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                 "slowest_phase": performance["slowest_phase"],
                 "total_seconds": performance["total_seconds"],
                 "jvm_peak_memory_mb": performance["jvm_peak_memory_mb"],
-                "manifest": str(config.output.manifest),
+                "manifest": str(config.manifest),
             },
             indent=2,
         )

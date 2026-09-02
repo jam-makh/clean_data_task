@@ -285,7 +285,7 @@ def assemble(
         users = phase.barrier(spine.user_months(accounts))
 
     with _Phase(timings, "balances", spark) as phase:
-        month_ends = balances.month_end_by_account(frame, config.balance)
+        month_ends = balances.month_end_by_account(frame, config)
         filled = phase.barrier(balances.carry_forward(accounts, month_ends))
 
     with _Phase(timings, "monthly_facts", spark) as phase:
@@ -296,7 +296,7 @@ def assemble(
     with _Phase(timings, "windows", spark) as phase:
         windows.verify_grain(facts)
         lagged = phase.barrier(
-            windows.build(facts, monthly_facts.lag_plan(rules), config.windows)
+            windows.build(facts, monthly_facts.lag_plan(rules), config)
         )
 
     with _Phase(timings, "assemble", spark) as phase:
@@ -342,7 +342,7 @@ def collect_report(
     :param rows_written: Rows the upsert touched, or None if it was skipped.
     :returns: The manifest, ready to serialise.
     """
-    txns = diagnostics.transactions(frame, rules, config.balance)
+    txns = diagnostics.transactions(frame, rules, config)
     months = diagnostics.account_months(build.filled)
     users = diagnostics.user_months(build.facts, rules)
 
@@ -413,8 +413,8 @@ def run(
     manifest["performance"]["jvm_peak_memory_mb"] = timings.jvm_peak_mb
     manifest["performance"]["driver_peak_memory_mb"] = timings.driver_peak_mb
 
-    config.output.manifest.parent.mkdir(parents=True, exist_ok=True)
-    config.output.manifest.write_text(
+    config.manifest.parent.mkdir(parents=True, exist_ok=True)
+    config.manifest.write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
 

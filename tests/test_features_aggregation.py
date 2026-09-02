@@ -357,14 +357,14 @@ def test_a_contradicted_balance_does_not_supply_a_month_end(spark, config):
     ]
     frame = features.frame(spark, rows)
 
-    month_ends = balances.month_end_by_account(frame, config.balance).collect()
+    month_ends = balances.month_end_by_account(frame, config).collect()
     assert len(month_ends) == 1
     assert month_ends[0]["observed_balance_usd"] == 100.0
 
     # And February inherits January's figure rather than the disputed one.
     accounts = spine.account_months(frame)
     rolled = features.rows_by_key(
-        balances.monthly(frame, accounts, config.balance), "user_id", "month"
+        balances.monthly(frame, accounts, config), "user_id", "month"
     )
     february = month_of(rolled, "u1", "2022-02-01")
     assert february[balances.BALANCE] == 100.0
