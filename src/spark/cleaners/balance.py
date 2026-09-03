@@ -1,26 +1,6 @@
 """
-Running balance: fill what the arithmetic proves, withhold everything else.
-
-Every operation in the pandas original is a groupwise scan over transactions
-in sequence order, so every one of them is a window function here -- one
-``Window.partitionBy(ACCOUNT_ID).orderBy(TXN_SEQ)`` and a handful of frames cut
-from it. The translation is mechanical with two exceptions worth stating.
-
-``ffill``/``bfill`` within an account become ``last(..., ignorenulls=True)``
-over the rows up to here and ``first(..., ignorenulls=True)`` over the rows
-from here on. That is also how "the previous *anchor*" is expressed: the offset
-column is null on every unstated row, so ignoring nulls over the preceding rows
-skips the blanks and lands on the last stated balance -- which is exactly what
-``anchors.groupby(keys).shift(1)`` does on the pandas side, where the shift is
-taken on the anchors alone so the blanks between them cannot shift what counts
-as adjacent.
-
-Rounding is ``bround``, not ``round``. Spark's ``round`` is HALF_UP and
-numpy's -- which is what ``Series.round`` calls -- is half-to-even. On a column
-of money accumulated by repeated addition the tie case is rare and it is not
-never, and a cent that disagrees between the two engines would surface as a
-parity failure on a value that is not actually wrong. ``bround`` is the
-half-to-even one.
+For each account, reconstruct a running balance wherever transaction arithmetic
+can support it, and classify how trustworthy that balance is.
 """
 
 import numpy as np
@@ -66,12 +46,8 @@ def _detect_regimes(
     frame, policy, source_col, amount_col, billing_col, sequence_col, account
 ):
     """
-    Decides, per row, which column moved the balance.
-
-    Same question and same answer as the pandas original: every pair of
-    consecutive rows in an account where the source states a balance on both
-    is evidence about one row's mover, and the labelling of that evidence is
-    the cheapest one allowing for a per-change penalty.
+    Decides, per row, which column moved the balance (txn_amount_cleaned or billing_amount) 
+    and which denomination the balance is in.
 
     The segmentation itself is irreducibly sequential -- the cheapest label
     for a row depends on the row before it, all the way back -- so there is no
@@ -82,9 +58,6 @@ def _detect_regimes(
     the same ``segment`` the pandas path calls, and the result comes back as a
     ``when`` chain on ``TXN_SEQ`` -- a broadcast comparison against three or
     four constants, evaluated per row with no Python.
-
-    That is one extra job over a narrow projection, and it buys the property
-    the whole step rests on: no row number is configured anywhere.
 
     :param account: The account window, ordered by sequence.
     :returns: A column expression yielding NATIVE or BILLING.
