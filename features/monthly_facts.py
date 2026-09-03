@@ -21,8 +21,8 @@ from features.windows import Lagged
 from src.rules.store import Rules
 
 # Facts that are zero in a month with no transactions. A quiet month did not
-# credit, debit or spend anything, and that is an observation rather than a
-# gap -- which is why the dense spine exists and why these are filled and the
+# credit, debit or spend anything, and that is an observation 
+# which is why the dense spine exists and why these are filled and the
 # balance is not.
 ZERO_MONEY = (
     flows.CREDITED,

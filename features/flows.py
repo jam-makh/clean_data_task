@@ -96,7 +96,7 @@ def disagreement(rules: Rules):
 def monthly(frame, rules: Rules):
     """
     Credited, debited and net per user per month.
-
+    Aggregate all transactions into monthly money-in and money-out totals.
     Both totals are positive magnitudes and the net is their difference, so a
     reader never has to know which way the underlying column was signed. A row
     whose code declares no direction enters neither total and is counted

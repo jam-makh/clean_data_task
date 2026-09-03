@@ -41,6 +41,8 @@ TOP_N = 10
 
 def _count(condition):
     """
+    Count how many rows satisfy a condition.
+
     :param condition: A boolean column.
     :returns: An expression counting the rows it holds for.
     """
@@ -49,6 +51,8 @@ def _count(condition):
 
 def _tally(frame, column, limit: int = TOP_N) -> dict[str, int]:
     """
+    Create a frequency breakdown of values.
+
     :param frame: The frame to group.
     :param column: The label column, as an expression or a name.
     :param limit: How many labels to keep, most frequent first.
@@ -56,7 +60,7 @@ def _tally(frame, column, limit: int = TOP_N) -> dict[str, int]:
     """
     rows = (
         frame.select(F.col(column).alias("label") if isinstance(column, str)
-                     else column.alias("label"))
+                    else column.alias("label"))
         .filter(F.col("label").isNotNull())
         .groupBy("label")
         .agg(F.count("*").alias("rows"))

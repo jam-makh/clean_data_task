@@ -1,9 +1,8 @@
 """
-The dense account-by-month and user-by-month timelines every fact hangs on.
-
-Built before any lag is taken, so ``prev_1m`` means the immediately preceding
-calendar month rather than the previous month that happened to have a
-transaction.
+make sure every account and user has a row for every calendar month, 
+including months where they had no transactions.
+``prev_1m`` means the immediately preceding calendar month rather than 
+the previous month that happened to have a transaction.
 
 On Spark the density is one expression: ``sequence`` generates the months
 between an account's first and the end of the window, and ``explode`` turns

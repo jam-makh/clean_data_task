@@ -3,9 +3,8 @@ Reading the cleaned transactions the feature build starts from.
 The rows are read into a Spark DataFrame and stay one all
 the way to the Postgres upsert.
 
-Postgres is the only source. There is no file reader: the cleaned
-transactions live in a table. The units decision is
-enforced here by never selecting the native-currency ones.
+Postgres is the only source. The units decision is
+enforced by never selecting the native-currency ones.
 """
 
 from pyspark.sql import functions as F

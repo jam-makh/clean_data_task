@@ -27,8 +27,7 @@ def counterparties(frame=None):
 
     ``CARD SETTLEMENT``, ``STANDING ORDER`` and ``INTERNAL TRANSFER`` occupy
     the merchant column without being merchants, they describe money moving
-    inside the bank. Counting them would make a user with three sweep rules
-    look like a user shopping at three merchants.
+    inside the bank are not counted as merchants.
 
     :param frame: Unused; kept so the call reads like the other helpers.
     :returns: A column carrying the merchant name, null on internal movements.
