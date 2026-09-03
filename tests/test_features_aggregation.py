@@ -12,7 +12,7 @@ The build runs on Spark; the assertions read a dozen rows back with
 
 import pytest
 
-from features import activity, balances, flows, spending
+from features import activity, end_balances, flows, spending
 from features import spine
 from features import builder
 from features import settings as feature_settings
@@ -117,7 +117,7 @@ def test_a_quiet_month_is_zero_flow_and_a_carried_balance(table, facts):
     # The provenance of that figure is a diagnostic, so it is on the facts and
     # not on the table.
     april = month_of(facts, "u1", "2022-04-01")
-    assert april[balances.IS_CARRIED] is True
+    assert april[end_balances.IS_CARRIED] is True
 
 
 def test_the_lag_skips_no_month(table):
@@ -148,8 +148,8 @@ def test_balances_from_several_accounts_are_summed(table, facts):
     # computed -- the run report counts partial rollups from it -- but it is
     # not a feature column.
     march = month_of(facts, "u2", "2022-03-01")
-    assert march[balances.CONTRIBUTING] == 2
-    assert march[balances.WITH_BALANCE] == 2
+    assert march[end_balances.CONTRIBUTING] == 2
+    assert march[end_balances.WITH_BALANCE] == 2
 
 
 def test_accounts_held_cannot_see_an_account_that_opens_later(table):
@@ -357,15 +357,15 @@ def test_a_contradicted_balance_does_not_supply_a_month_end(spark, config):
     ]
     frame = features.frame(spark, rows)
 
-    month_ends = balances.month_end_by_account(frame, config).collect()
+    month_ends = end_balances.month_end_by_account(frame, config).collect()
     assert len(month_ends) == 1
     assert month_ends[0]["observed_balance_usd"] == 100.0
 
     # And February inherits January's figure rather than the disputed one.
     accounts = spine.account_months(frame)
     rolled = features.rows_by_key(
-        balances.monthly(frame, accounts, config), "user_id", "month"
+        end_balances.monthly(frame, accounts, config), "user_id", "month"
     )
     february = month_of(rolled, "u1", "2022-02-01")
-    assert february[balances.BALANCE] == 100.0
-    assert february[balances.IS_CARRIED] is True
+    assert february[end_balances.BALANCE] == 100.0
+    assert february[end_balances.IS_CARRIED] is True

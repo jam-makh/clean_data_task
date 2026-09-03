@@ -10,7 +10,7 @@ import datetime
 import pytest
 from pyspark.sql import functions as F
 
-from features import balances, builder, contract, spine
+from features import builder, contract, end_balances, spine
 from features import monthly_facts
 from features import windows
 from features import settings as feature_settings
@@ -47,8 +47,8 @@ def facts(source_frame, rules, config):
     """:returns: The monthly facts the point-in-time layer reads."""
     accounts = spine.account_months(source_frame)
     users = spine.user_months(accounts)
-    filled = balances.carry_forward(
-        accounts, balances.month_end_by_account(source_frame, config)
+    filled = end_balances.carry_forward(
+        accounts, end_balances.month_end_by_account(source_frame, config)
     )
     return monthly_facts.build(source_frame, filled, users, rules, config)
 

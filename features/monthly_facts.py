@@ -14,7 +14,7 @@ by the run report.
 
 from pyspark.sql import functions as F
 
-from features import activity, balances, flows
+from features import activity, end_balances, flows
 from features import spending
 from features.settings import FeatureSettings
 from features.windows import Lagged
@@ -38,7 +38,7 @@ ZERO_COUNTS = (
 )
 
 # Facts that exist so the run report can count them, and for no other reason.
-DIAGNOSTIC_FACTS = balances.DIAGNOSTICS + (
+DIAGNOSTIC_FACTS = end_balances.DIAGNOSTICS + (
     flows.UNDECLARED,
     activity.MONTHS_SINCE,
 )
@@ -66,7 +66,7 @@ def build(frame, filled, users, rules: Rules, config: FeatureSettings):
     :param config: The build settings.
     :returns: One row per ``(user_id, month)``, describing that month.
     """
-    balance = balances.roll_up(filled)
+    balance = end_balances.roll_up(filled)
     flow = flows.monthly(frame, rules)
     active = activity.monthly(frame)
     spend = spending.monthly(frame, rules)
@@ -91,13 +91,13 @@ def build(frame, filled, users, rules: Rules, config: FeatureSettings):
 
     # Two diagnostics that are counts of accounts, not of transactions: a
     # month the user held no account on the spine contributes zero, not null.
-    for column in (balances.CONTRIBUTING, balances.WITH_BALANCE):
+    for column in (end_balances.CONTRIBUTING, end_balances.WITH_BALANCE):
         facts = facts.withColumn(
             column, F.coalesce(F.col(column), F.lit(0)).cast("int")
         )
     facts = facts.withColumn(
-        balances.IS_CARRIED,
-        F.coalesce(F.col(balances.IS_CARRIED), F.lit(False)),
+        end_balances.IS_CARRIED,
+        F.coalesce(F.col(end_balances.IS_CARRIED), F.lit(False)),
     )
 
     return facts
@@ -117,7 +117,7 @@ def lag_plan(rules: Rules) -> tuple[Lagged, ...]:
         # The balance history: three lags, both rolling statistics, and the
         # month-on-month change.
         Lagged(
-            balances.BALANCE,
+            end_balances.BALANCE,
             lags=(1, 2, 3),
             rolling=True,
             rolling_std=True,

@@ -23,7 +23,7 @@ existing group costs nothing.
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 
-from features import activity, balances, flows
+from features import activity, end_balances, flows
 from features import spending
 from features.settings import FeatureSettings
 from src.rules import loader
@@ -160,9 +160,9 @@ def account_months(filled) -> dict:
     :param filled: The account spine as ``balances.carry_forward`` left it.
     :returns: The account-month counts, as plain Python.
     """
-    observed = F.col(balances.OBSERVED)
-    carried = F.col(balances.CARRIED)
-    has_balance = F.col(balances.ACCOUNT_BALANCE).isNotNull()
+    observed = F.col(end_balances.OBSERVED)
+    carried = F.col(end_balances.CARRIED)
+    has_balance = F.col(end_balances.ACCOUNT_BALANCE).isNotNull()
 
     row = filled.agg(
         F.count("*").alias("account_months_total"),
@@ -227,8 +227,8 @@ def user_months(facts, rules: Rules) -> dict:
     :param rules: The vocabularies.
     :returns: The user-month counts, as plain Python.
     """
-    contributing = F.col(balances.CONTRIBUTING)
-    with_balance = F.col(balances.WITH_BALANCE)
+    contributing = F.col(end_balances.CONTRIBUTING)
+    with_balance = F.col(end_balances.WITH_BALANCE)
     since = F.col(activity.MONTHS_SINCE)
 
     residual = spending.amount_column(rules.residual)
@@ -237,13 +237,13 @@ def user_months(facts, rules: Rules) -> dict:
         F.count("*").alias("user_months_total"),
         F.countDistinct("user_id").alias("users"),
         _count(F.col(activity.TXN_COUNT) == 0).alias("user_months_inactive"),
-        _count(F.col(balances.BALANCE).isNull()).alias(
+        _count(F.col(end_balances.BALANCE).isNull()).alias(
             "user_months_without_balance"
         ),
         _count(with_balance < contributing).alias(
             "user_months_partial_rollup"
         ),
-        _count(F.col(balances.IS_CARRIED)).alias(
+        _count(F.col(end_balances.IS_CARRIED)).alias(
             "user_months_carried_forward"
         ),
         _count(F.col(flows.UNDECLARED) > 0).alias(

@@ -43,7 +43,7 @@ except ImportError:  # pragma: no cover
 from pyspark import StorageLevel
 from pyspark.sql import functions as F
 
-from features import activity, balances, contract, monthly_facts, report, source, spine, windows
+from features import activity, contract, end_balances, monthly_facts, report, source, spine, windows
 from src.config_readers.errors import ConfigError
 from src.db.settings import Database
 from features import diagnostics
@@ -285,8 +285,8 @@ def assemble(
         users = phase.barrier(spine.user_months(accounts))
 
     with _Phase(timings, "balances", spark) as phase:
-        month_ends = balances.month_end_by_account(frame, config)
-        filled = phase.barrier(balances.carry_forward(accounts, month_ends))
+        month_ends = end_balances.month_end_by_account(frame, config)
+        filled = phase.barrier(end_balances.carry_forward(accounts, month_ends))
 
     with _Phase(timings, "monthly_facts", spark) as phase:
         facts = phase.barrier(
@@ -307,7 +307,7 @@ def assemble(
         # comes from the same fact the lags do, so the label and its own
         # history are on one scale by construction.
         target = facts.select(
-            "user_id", "month", F.col(balances.BALANCE).alias(TARGET)
+            "user_id", "month", F.col(end_balances.BALANCE).alias(TARGET)
         )
 
         joined = lagged
