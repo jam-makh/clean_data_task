@@ -25,33 +25,22 @@ from pyspark.sql.types import (
     StructType,
 )
 
-# ---------------------------------------------------------------------------
 # Column expressions
-# ---------------------------------------------------------------------------
 
-# Every codepoint ``str.isspace()`` is true for, which is what ``str.strip()``
-# removes -- and the reason `trim` is not used below: Spark's `trim` removes
-# the ASCII space and nothing else, so a cell whose country reads as a
-# non-breaking space followed by 'LB' would survive
-# it with the space attached, miss every lookup, and be reported as an unknown
-# country. Written as ranges and rendered into a Java character class so the
-# two spellings of "whitespace" cannot drift: this list IS the pandas
-# definition.
+# Unicode whitespace ranges matching Python's str.strip() definition.
 _WHITESPACE = (
     (0x09, 0x0D), (0x1C, 0x1F), (0x20, 0x20), (0x85, 0x85), (0xA0, 0xA0),
     (0x1680, 0x1680), (0x2000, 0x200A), (0x2028, 0x2029), (0x202F, 0x202F),
     (0x205F, 0x205F), (0x3000, 0x3000),
 )
 
-# ``\x{..}`` escapes rather than the characters themselves: a literal control
-# character inside a regex string is invisible in a diff and impossible to
-# review.
+# Build a regex character class from the Unicode ranges above.
 _WS_CLASS = "".join(
     rf"\x{{{low:x}}}" if low == high else rf"\x{{{low:x}}}-\x{{{high:x}}}"
     for low, high in _WHITESPACE
 )
 
-# Anchored both ends in one pattern so the strip is a single pass.
+# Match whitespace at the beginning or end of a string.
 STRIP = f"^[{_WS_CLASS}]+|[{_WS_CLASS}]+$"
 
 

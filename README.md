@@ -64,7 +64,7 @@ Create the virtual environment and install the dependencies.
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements.txt
 ```
 
 On macOS or Linux the activation line is `source .venv/bin/activate`; everything after it is identical.
@@ -1139,7 +1139,7 @@ computed - is written where the code is, one module docstring per concern:
 | --- | --- |
 | [`features/contract.py`](features/contract.py) | The column list, and why the diagnostics and shares are not on it |
 | [`features/spine.py`](features/spine.py) | Why the account timeline is dense to the end of the window |
-| [`features/balances.py`](features/balances.py) | Carry-forward, and why nothing is ever filled backwards |
+| [`features/end_balances.py`](features/end_balances.py) | Carry-forward, and why nothing is ever filled backwards |
 | [`features/windows.py`](features/windows.py) | The point-in-time rule as a window frame |
 | [`features/diagnostics.py`](features/diagnostics.py) | Why observability is counted once at the end rather than per metric |
 | [`features/writer.py`](features/writer.py) | Why the upsert goes through a staging table |

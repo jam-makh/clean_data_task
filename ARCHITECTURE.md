@@ -542,10 +542,9 @@ or
 Never one without the other.
 ```
 
-Enforced in three places, deliberately: `CONSTRAINT
-balance_stated_iff_available` in the table, a test in `tests/test_balance.py`,
-and the `balance.stated` / `balance.unavailable` / `balance.proven` counts in
-every run's own report. Each is stated as an **equivalence** and not an
+Enforced in two places, deliberately: `CONSTRAINT
+balance_stated_iff_available` in the table, and the `balance.stated` /
+`balance.unavailable` / `balance.proven` counts in every run's own report. Each is stated as an **equivalence** and not an
 implication — a null balance beside a status claiming provenance and a figure
 stamped `UNAVAILABLE` are both incoherent, and checking one direction would
 catch only one of them.
@@ -1363,9 +1362,8 @@ have made "the cleaning is identical" a claim rather than a fact.
 
 `raw_transactions` declares its twenty-two source columns as `TEXT`, which
 looks like laziness and is the opposite. It is the same contract
-`spark_setup.read_csv` enforces with `inferSchema` off and `src/utils/io.py`
-with `dtype=object`: **the reader must not decide** what `""` or `"NA"` or
-`"5.727.580,00"` mean.
+`spark_setup.read_csv` enforces with `inferSchema` off: **the reader must not
+decide** what `""` or `"NA"` or `"5.727.580,00"` mean.
 
 A `NUMERIC` column here would reject an unparseable amount at the `INSERT` —
 before any stage could mark it, and therefore before the cleaning report could

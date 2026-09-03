@@ -19,119 +19,63 @@ import os
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Session configuration
-# ---------------------------------------------------------------------------
 
-# `local[*]` and not a number is the usual answer, and the wrong one where the
-# only Python in the plan is a `pandas_udf`. Every task running one spawns a
-# `python.exe` that imports pandas and unpickles the merchant resolver before
-# it can open its socket back, and `*` means one such spawn per core -- times
-# however many stages Spark has in flight, since a broadcast and a cache build
-# materialise alongside the stage that asked for them. Measured on this box:
-# 27 concurrent worker processes against 16 cores and about a gigabyte of free
-# memory, and one of them missing its handshake even at a 120s timeout. That
-# surfaces as "Python worker failed to connect back", which describes the
-# symptom and not the cause -- the worker was starved, not slow.
-#
-# Bounded at 8, matching SHUFFLE_PARTITIONS so a shuffle stage and a scan
-# stage want the same number of tasks. Below the core count on purpose: the
-# headroom is what the concurrent stages spawn into.
+# Session configuration: fixed explicitly so the pipeline behaves consistently
+# across the pipeline, tests, notebooks, machines, and Spark versions.
+
+# Number of local Spark threads allowed to run tasks concurrently.
 LOCAL_THREADS = 8
+
+# Run Spark locally using the number of threads defined above.
 LOCAL_MASTER = f"local[{LOCAL_THREADS}]"
+
+# Name shown for this Spark application.
 APP_NAME = "transaction-cleaning"
 
-# Spark's default is 200. On 265k rows that is 200 tasks over a few hundred
-# kilobytes each, and scheduling overhead dominates. 8 is chosen against the
-# data: large enough to be worth a task, at or above the core count so no core
-# idles at the tail of a stage.
+
+# Number of partitions used when Spark redistributes data during shuffle operations.
 SHUFFLE_PARTITIONS = "8"
 
-# Fixed, and deliberately not the machine's zone -- otherwise the cleaned
-# output is a property of the laptop that produced it. UTC because the
-# source's offsets are recorded explicitly in TXN_TS_UTC_OFFSET, which only
-# means anything against a fixed base.
+
+# Fixed session time zone so timestamp parsing does not depend on the machine.
 SESSION_TIMEZONE = "UTC"
 
-# Sized for the parity harness, which collects whole frames to the driver.
+
+# Memory allocated to the Spark driver process.
 DRIVER_MEMORY = "4g"
 
-# ANSI mode decides what an impossible cast does. Spark 4 turns it ON by
-# default, which makes `cast` raise on the first unparseable value instead of
-# returning null -- and this pipeline's contract is that an unreadable value is
-# COUNTED, not fatal. pandas spells that `errors="coerce"`; the equivalent here
-# is a non-ANSI cast. Set explicitly because this default flipped between
-# Spark 3 and 4 and could flip again. Values become null, which is exactly what
-# every stage's diagnostic column already counts.
+
+# Invalid casts produce null instead of immediately raising an exception.
 ANSI_ENABLED = "false"
 
-# CORRECTED is the strict date parser: a string that does not match the pattern
-# yields null rather than being coaxed into a date. LEGACY would accept
-# "2022-13-45" and produce something. Requirement 2 -- unparseable rows are
-# counted, not guessed -- is only enforceable under CORRECTED.
+
+# Use strict date parsing: invalid dates become null instead of being guessed.
 TIME_PARSER_POLICY = "CORRECTED"
 
-# How long a freshly spawned Python worker gets to open its socket back to the
-# driver before Spark gives up on it. The default is 15s, which is generous on
-# Linux and tight here: every local thread spawns a worker at once, Windows
-# process creation is slow, and there is no Unix-domain-socket path on this
-# platform -- Spark 4's `spark.python.unix.domain.socket.enabled` is a POSIX
-# option, so every worker goes through loopback TCP. A cold start under that
-# contention overruns 15s and the worker is killed mid-handshake, which
-# surfaces as CANNOT_OPEN_SOCKET followed by "Python worker exited
-# unexpectedly" -- an infrastructure failure wearing the costume of a job
-# failure. Raised rather than removed: a worker that genuinely cannot connect
-# should still fail, just not one that was merely slow to start.
+
+# Maximum time a new Python worker can take to connect back to Spark.
 WORKER_SOCKET_TIMEOUT = "120"
 
-# What a crashed Python worker reports on its way out. Without this the JVM can
-# only say "exited unexpectedly (crashed)", because the worker died before it
-# could send anything back -- the Python-side traceback is lost with the
-# process. With it, faulthandler dumps that traceback into the executor log.
-# On permanently, not just while debugging: this failure mode is invisible by
-# construction, and the cost is a signal handler installed per worker.
+
+# Keep Python crash tracebacks available in Spark executor logs.
 WORKER_FAULTHANDLER = "true"
 
-# How much of its own history the driver keeps, in a session that never ends.
-#
-# Spark's status listeners are not a UI feature. They run whether or not
-# `spark.ui.enabled` is set, because the same store answers `spark.sparkContext
-# .statusTracker` and the SQL tab alike, and they hold every retained entry on
-# the driver heap -- an execution's entry includes its whole plan graph.
-#
-# The defaults are 1000 apiece, sized for a batch job that runs a few dozen
-# jobs and exits. The consumer is the opposite: one session, one message at a
-# time, for as long as the process lives. At roughly a dozen Spark actions per
-# message it reaches the 1000-execution ceiling in under a hundred messages,
-# and until it does, nothing is evicted -- the heap simply fills with the
-# recorded history of work that finished minutes ago. Measured on the run this
-# was written for: stage 1777 and 673 live broadcasts in one session, ending in
-# OutOfMemoryError on a batch of one row.
-#
-# 20 is chosen against what the history is FOR here. Nothing in this project
-# reads it back -- there is no UI to open, and the audit trail is
-# `pipeline.report`, which is computed from the data and not from Spark's
-# bookkeeping. What remains is the handful of recent entries an error message
-# quotes when a job fails, and 20 covers one message's worth of those with room
-# to spare. This is a cap on Spark's memory of itself, not on anything the
-# pipeline records.
+
+# Limit how much completed Spark job history remains in driver memory.
 RETAINED_JOBS = "20"
+
 RETAINED_STAGES = "20"
+
 RETAINED_TASKS = "200"
+
 RETAINED_EXECUTIONS = "20"
 
-# Attached when present rather than required, so a session built by a test and
-# one built by the pipeline reach the same jars.
+
+# Optional directory containing JAR files needed by the Spark session.
 JARS_DIR = Path("jars")
 
-# Where the JVM drops its own wreckage. A driver that dies of native OOM writes
-# an `hs_err_pid<pid>.log` and, with the compiler mid-flight, a
-# `replay_pid<pid>.log` beside it -- and "beside it" means the working
-# directory, i.e. the repository root, unless told otherwise. They are crash
-# dumps rather than logs: nothing writes to them during a healthy run and
-# nothing reads them back afterwards except a person diagnosing a specific
-# crash. Pointed here so the root stays clean and one `logs/` is all there is
-# to sweep.
+
+# Directory where JVM crash dumps and related diagnostic files are written.
 LOGS_DIR = Path("logs")
 
 
@@ -308,15 +252,6 @@ def session(app_name: str = APP_NAME, master: str | None = None, **overrides):
     return spark
 
 
-# JVM failures that end the session rather than the job.
-#
-# An OutOfMemoryError is not a fact about the row being cleaned. The heap is
-# gone process-wide, every subsequent job fails the same way, and the driver
-# does not recover -- the run this was written against consumed six more
-# messages after the first one, "failing" each in five seconds without doing
-# any work, and marked six good rows FAILED on the way past. A StackOverflow
-# in the JVM is the same shape of problem.
-#
 # Matched on the name in the message text because that is what survives the
 # trip: these arrive in Python as ``Py4JJavaError`` wrapping a Java throwable,
 # so the Python exception TYPE says only "something in the JVM went wrong" and
@@ -329,12 +264,12 @@ FATAL_JVM_ERRORS = (
 
 def is_fatal(exc: BaseException) -> bool:
     """
-    :param exc: Anything raised out of a Spark call.
-    :returns: True if the session, and not merely the job, is finished.
-
     The cause chain is walked as well as the exception itself: a job failure
     raised ``from`` an OOM is still an OOM, and reading only the outermost
     message would classify it as an ordinary bad row.
+
+    :param exc: Anything raised out of a Spark call.
+    :returns: True if the session, and not merely the job, is finished.
     """
     seen = set()
     while exc is not None and id(exc) not in seen:
@@ -463,7 +398,7 @@ def string_schema(path: str | Path, sep: str | None = None):
 
 def read_csv(spark, path: str | Path, sep: str | None = None):
     """
-    Reads a delimited source as all strings, matching the pandas reader.
+    Reads a delimited source as all strings.
 
     Every option is stated, including the ones whose stated value is today's
     default, because a parity harness comparing two readers is only meaningful
@@ -477,13 +412,6 @@ def read_csv(spark, path: str | Path, sep: str | None = None):
     ``mode=FAILFAST`` matches what pandas does with a ragged row: raise. Under
     the default PERMISSIVE mode a row with too few fields is null-padded and a
     row with too many is truncated, and the run completes reporting nothing.
-
-    One known and deliberate difference from the pandas reader remains: a
-    *quoted* empty field. pandas' ``na_values=[""]`` makes it null; Spark's
-    ``emptyValue`` default keeps it an empty string, and the two categories are
-    ones this pipeline works hard to keep apart, so neither reader is bent to
-    agree with the other. The parity harness reports it if the file ever
-    contains one.
 
     :param spark: An active session, from ``session()``.
     :param path: Source ``.csv``/``.tsv``/``.txt``.

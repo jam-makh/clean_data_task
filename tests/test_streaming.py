@@ -147,7 +147,7 @@ def session():
     it asked for. That is Spark's rule and not something a fixture can fix:
     one JVM per process. Run this file on its own to get the fast path.
     """
-    import consumer_parser as entry_point
+    import consumer as entry_point
 
     try:
         return entry_point._session("1")
